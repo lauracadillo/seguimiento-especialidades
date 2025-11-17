@@ -6,11 +6,10 @@ from datetime import datetime
 
 # === CONFIGURACIÓN INICIAL ===
 st.set_page_config(page_title="Control de Mantenimientos", layout="wide")
-st.title(" Auditoría Ejecución Especialidades Mtto Preventivo")
 
 # === CONSTANTES ===
-ARCHIVO = "libroTest.xlsx"
-HOJA = "Hoja2"
+ARCHIVO = "libro_31oct.xlsx"
+HOJA = "Data"
 
 # Nombres de columnas
 COL_ESPECIALIDAD = "SUB_ESPECIALIDAD"
@@ -301,125 +300,155 @@ def verificar_pendientes_no_ejecutados(df, col_site, col_especialidad, col_estad
                     })
     
     return alertas_pendientes
-# === CARGA Y PROCESAMIENTO DE DATOS ===
-if ARCHIVO:
-    df = pd.read_excel(ARCHIVO, sheet_name=HOJA)
-    df.columns = df.columns.str.strip()
-    
-    # Preparar columna de fecha
-    df[COL_FECHA] = df[COL_FECHA].astype(str).str.strip().str.lower()
-    df["MES"] = df[COL_FECHA].apply(convertir_mes_ano)
-    
-    # Filtrar por estado
-    df_ejecutados = df[df[COL_ESTADO].str.lower() == "ejecutado"]
-    df_cancelados = df[df[COL_ESTADO].str.lower() == "cancelado"]
-    df_pendientes = df[df[COL_ESTADO].str.lower() == "pendiente"]
-    
-    # === CONTEO DE ESPECIALIDADES EJECUTADAS ===
-    conteo_ejecutadas = (
-        df_ejecutados.groupby([COL_SITE, "MES", COL_ESPECIALIDAD])
-        .size()
-        .unstack(fill_value=0)
-    )
-    
-    for especialidad in ESPECIALIDADES:
-        if especialidad not in conteo_ejecutadas.columns:
-            conteo_ejecutadas[especialidad] = 0
-    
-    conteo_ejecutadas = conteo_ejecutadas[ESPECIALIDADES]
-    conteo_ejecutadas["TOTAL"] = conteo_ejecutadas.sum(axis=1)
-    conteo_ejecutadas.reset_index(inplace=True)
-    
-    # === ANÁLISIS ===
-    eliminadas, mantenimientos_perdidos = detectar_especialidades_eliminadas(
-        conteo_ejecutadas, COL_SITE, ESPECIALIDADES
-    )
-    diferencias_mtto = diferencia_mtto_anterior(conteo_ejecutadas, COL_SITE)
-    tendencias = calcular_tendencias(conteo_ejecutadas, COL_SITE)
-    desempeno_contratistas, contratistas_problematicos = analizar_desempeno_contratistas(
-        df, COL_CONTRATISTA, COL_SITE, COL_ESTADO
-    )
-    
-    # NUEVO: Verificar pendientes no ejecutados
-    alertas_pendientes = verificar_pendientes_no_ejecutados(
-        df, COL_SITE, COL_ESPECIALIDAD, COL_ESTADO, "MES"
-    )
-    
-    # Calcular riesgos
-    prioridad_df = df[[COL_SITE, COL_PRIORIDAD]].drop_duplicates()
-    riesgos = {}
-    scores = {}
-    for site in df[COL_SITE].unique():
-        riesgo, score = calcular_score_riesgo(
-            site, eliminadas, mantenimientos_perdidos, diferencias_mtto, prioridad_df
+
+# === CARGA Y PROCESAMIENTO DE DATOS (se ejecuta una sola vez) ===
+@st.cache_data
+def cargar_datos():
+    """Carga y procesa los datos una sola vez"""
+    if ARCHIVO:
+        df = pd.read_excel(ARCHIVO, sheet_name=HOJA)
+        df.columns = df.columns.str.strip()
+        
+        # Preparar columna de fecha
+        df[COL_FECHA] = df[COL_FECHA].astype(str).str.strip().str.lower()
+        df["MES"] = df[COL_FECHA].apply(convertir_mes_ano)
+        
+        # Filtrar por estado
+        df_ejecutados = df[df[COL_ESTADO].str.lower() == "ejecutado"]
+        df_cancelados = df[df[COL_ESTADO].str.lower() == "cancelado"]
+        df_pendientes = df[df[COL_ESTADO].str.lower() == "pendiente"]
+        
+        # === CONTEO DE ESPECIALIDADES EJECUTADAS ===
+        conteo_ejecutadas = (
+            df_ejecutados.groupby([COL_SITE, "MES", COL_ESPECIALIDAD])
+            .size()
+            .unstack(fill_value=0)
         )
-        riesgos[site] = riesgo
-        scores[site] = score
+        
+        for especialidad in ESPECIALIDADES:
+            if especialidad not in conteo_ejecutadas.columns:
+                conteo_ejecutadas[especialidad] = 0
+        
+        conteo_ejecutadas = conteo_ejecutadas[ESPECIALIDADES]
+        conteo_ejecutadas["TOTAL"] = conteo_ejecutadas.sum(axis=1)
+        conteo_ejecutadas.reset_index(inplace=True)
+        
+        # === ANÁLISIS ===
+        eliminadas, mantenimientos_perdidos = detectar_especialidades_eliminadas(
+            conteo_ejecutadas, COL_SITE, ESPECIALIDADES
+        )
+        diferencias_mtto = diferencia_mtto_anterior(conteo_ejecutadas, COL_SITE)
+        tendencias = calcular_tendencias(conteo_ejecutadas, COL_SITE)
+        desempeno_contratistas, contratistas_problematicos = analizar_desempeno_contratistas(
+            df, COL_CONTRATISTA, COL_SITE, COL_ESTADO
+        )
+        
+        # Verificar pendientes no ejecutados
+        alertas_pendientes = verificar_pendientes_no_ejecutados(
+            df, COL_SITE, COL_ESPECIALIDAD, COL_ESTADO, "MES"
+        )
+        
+        # Calcular riesgos
+        prioridad_df = df[[COL_SITE, COL_PRIORIDAD]].drop_duplicates()
+        riesgos = {}
+        scores = {}
+        for site in df[COL_SITE].unique():
+            riesgo, score = calcular_score_riesgo(
+                site, eliminadas, mantenimientos_perdidos, diferencias_mtto, prioridad_df
+            )
+            riesgos[site] = riesgo
+            scores[site] = score
+        
+        return {
+            'df': df,
+            'df_ejecutados': df_ejecutados,
+            'df_cancelados': df_cancelados,
+            'df_pendientes': df_pendientes,
+            'conteo_ejecutadas': conteo_ejecutadas,
+            'eliminadas': eliminadas,
+            'mantenimientos_perdidos': mantenimientos_perdidos,
+            'diferencias_mtto': diferencias_mtto,
+            'tendencias': tendencias,
+            'desempeno_contratistas': desempeno_contratistas,
+            'contratistas_problematicos': contratistas_problematicos,
+            'alertas_pendientes': alertas_pendientes,
+            'prioridad_df': prioridad_df,
+            'riesgos': riesgos,
+            'scores': scores
+        }
+    else:
+        return None
+
+# === PÁGINA PRINCIPAL===
+def pagina_reporte_general():
+
+    st.title("📊 Auditoría Ejecución Especialidades Mtto Preventivo")
     
-    # === MÉTRICAS GLOBALES (SIDEBAR) ===
+    datos = st.session_state.datos
+    
+    if datos is None:
+        st.info("📂 Por favor carga un archivo Excel para iniciar el análisis.")
+        return
+    
+    # === MÉTRICAS GLOBALES ===
     st.header("📈 Métricas Globales")
-    total_sitios = df[COL_SITE].nunique()
-    tasa_ejecucion = (len(df_ejecutados) / len(df) * 100) if len(df) > 0 else 0
-    sitios_con_problemas = len([s for s, elims in eliminadas.items() if elims])
+    total_sitios = datos['df'][COL_SITE].nunique()
+    tasa_ejecucion = (len(datos['df_ejecutados']) / len(datos['df']) * 100) if len(datos['df']) > 0 else 0 
+    sitios_con_problemas = len([s for s, elims in datos['eliminadas'].items() if elims])
 
     col_m1, col_m2, col_m3, col_m4 = st.columns(4)
 
     with col_m1:
-        st.metric("🏢 Total Sitios", total_sitios)
+        st.metric("Total Sitios", total_sitios, border = True)
     with col_m2:
-        st.metric("✅ Tasa Ejecución", f"{tasa_ejecucion:.1f}%")
+        st.metric("Tasa Ejecución", f"{tasa_ejecucion:.1f}%", border = True)
 
     with col_m3:
-        st.metric("🚨 Sitios con Problemas", sitios_con_problemas)
+        st.metric("Sitios con Problemas", sitios_con_problemas, border = True)
 
     with col_m4:
-        if alertas_pendientes:
-            st.metric("⏰ Pendientes sin Ejecutar", len(alertas_pendientes), 
-                            delta=f"-{len(alertas_pendientes)}", delta_color="inverse")
+        if datos['alertas_pendientes']:
+            st.metric("Matenimientos pendientes", len(datos['alertas_pendientes']), 
+                         border = True)
     
     # === REPORTE EJECUTIVO ===
     st.header("Reporte General")
 
     st.subheader("📈 Tendencias en los sitios")
-    sitios_decreciendo = [s for s, t in tendencias.items() if "DECRECIENDO" in t["tendencia"]]
-    sitios_creciendo = [s for s, t in tendencias.items() if "CRECIENDO" in t["tendencia"]]
-    sitios_estables = [s for s, t in tendencias.items() if "ESTABLE" in t["tendencia"]]
+    sitios_decreciendo = [s for s, t in datos['tendencias'].items() if "DECRECIENDO" in t["tendencia"]]
+    sitios_creciendo = [s for s, t in datos['tendencias'].items() if "CRECIENDO" in t["tendencia"]]
+    sitios_estables = [s for s, t in datos['tendencias'].items() if "ESTABLE" in t["tendencia"]]
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.metric("↘️ Menos mantenimientos en:", len(sitios_decreciendo))
+        st.metric("↘️ Menos mantenimientos en:", len(sitios_decreciendo), border=True)
     with col2:
-        st.metric("↗️ Más mantenimientos en:", len(sitios_creciendo))
+        st.metric("↗️ Más mantenimientos en:", len(sitios_creciendo), border=True)
     with col3: 
-        st.metric("➡️ Los mismos mantenimientos en:", len(sitios_estables))
+        st.metric("➡️ Los mismos mantenimientos en:", len(sitios_estables), border=True)
     
     
-    # === NUEVA SECCIÓN: ALERTAS DE PENDIENTES NO EJECUTADOS ===
-    if alertas_pendientes:
-        st.markdown("---")
+
+# === PÁGINA DE MANTENIMIENTOS PENDIENTES ===
+def pagina_pendientes():
+    st.title("Seguimiento de los mantenimientos pendientes")
+    
+    datos = st.session_state.datos
+    
+    if datos is None:
+        st.info("📂 Por favor carga un archivo Excel para iniciar el análisis.")
+        return
+
+    # === ALERTAS DE PENDIENTES NO EJECUTADOS ===
+    if datos['alertas_pendientes']:
+        
         st.header("Seguimiento de mantenimientos Pendientes")
-        
-        # Contador por severidad
-        criticos = len([a for a in alertas_pendientes if a['severidad'] == 'CRÍTICA'])
-        altos = len([a for a in alertas_pendientes if a['severidad'] == 'ALTA'])
-        medios = len([a for a in alertas_pendientes if a['severidad'] == 'MEDIA'])
-        
-        col_alert1, col_alert2, col_alert3, col_alert4 = st.columns(4)
-        
-        with col_alert1:
-            st.metric("🔴 Críticos", criticos)
-        with col_alert2:
-            st.metric("🟠 Altos", altos)
-        with col_alert3:
-            st.metric("🟡 Medios", medios)
-        with col_alert4:
-            st.metric("📊 Total", len(alertas_pendientes))
         
         # Mostrar tabla de alertas
         st.subheader("Detalle de Pendientes No Ejecutados")
         
-        df_alertas = pd.DataFrame(alertas_pendientes)
+        df_alertas = pd.DataFrame(datos['alertas_pendientes'])
         
         # Aplicar colores según severidad
         def colorear_severidad(val):
@@ -432,21 +461,27 @@ if ARCHIVO:
             return ''
         
         st.dataframe(
-            df_alertas.style.applymap(colorear_severidad, subset=['severidad']),
+            df_alertas.style.map(colorear_severidad, subset=['severidad']),
             width='stretch'
         )
-        
-        
     else:
         st.success("✅ No hay mantenimientos pendientes sin ejecutar")
     
-    # === ANÁLISIS DE CONTRATISTAS (MEJORADO) ===
-    st.header("👷 Análisis Detallado de los FLM")
 
+# === PÁGINA DE ANÁLISIS DE FLM ===
+def pagina_analisis_flm():
+    st.title("👷 Análisis de desempeño de los FLM")
+    
+    datos = st.session_state.datos
+    
+    if datos is None:
+        st.info("📂 Por favor carga un archivo Excel para iniciar el análisis.")
+        return
+    
     # Mostrar todos los contratistas con detalles expandibles
     st.subheader("Desempeño General")
     st.dataframe(
-        desempeno_contratistas.style.background_gradient(
+        datos['desempeno_contratistas'].style.background_gradient(
             subset=['% Ejecutado'], cmap='RdYlGn', vmin=0, vmax=100
         ).background_gradient(
             subset=['% Cancelado'], cmap='RdYlGn_r', vmin=0, vmax=100
@@ -456,30 +491,34 @@ if ARCHIVO:
 
     # Detalle expandible para CADA contratista (no solo los problemáticos)
     st.subheader("Detalle por FLM")
-    for contratista in desempeno_contratistas.index:
-        st.subheader(f"{contratista} - {desempeno_contratistas.loc[contratista, '% Ejecutado']:.1f}% Ejecutado")
+    for contratista in datos['desempeno_contratistas'].index:
+        st.subheader(f"{contratista}")
         # Obtener sitios de este contratista
-        sitios_contratista = df[df[COL_CONTRATISTA] == contratista][COL_SITE].unique()
+        sitios_contratista = datos['df'][datos['df'][COL_CONTRATISTA] == contratista][COL_SITE].unique()
         
         # Desglose por estado
         col_a, col_b, col_c = st.columns(3)
-        datos = desempeno_contratistas.loc[contratista]
+        datos_contratista = datos['desempeno_contratistas'].loc[contratista]
         
         with col_a:
-            st.metric("Ejecutado", f"{datos.get('Ejecutado', 0):.0f}", 
-                    f"{datos.get('% Ejecutado', 0):.1f}%")
+            st.metric("Ejecutado", f"{datos_contratista.get('Ejecutado', 0):.0f}", 
+                    f"{datos_contratista.get('% Ejecutado', 0):.1f}%", border=True)
         with col_b:
-            st.metric("Pendiente", f"{datos.get('Pendiente', 0):.0f}", 
-                    f"{datos.get('% Pendiente', 0):.1f}%")
+            st.metric("Pendiente", f"{datos_contratista.get('Pendiente', 0):.0f}", 
+                    f"{datos_contratista.get('% Pendiente', 0):.1f}%", border=True)
         with col_c:
-            st.metric("Cancelado", f"{datos.get('Cancelado', 0):.0f}", 
-                    f"{datos.get('% Cancelado', 0):.1f}%", delta_color="inverse")
+            st.metric("Cancelado", f"{datos_contratista.get('Cancelado', 0):.0f}", 
+                    f"{datos_contratista.get('% Cancelado', 0):.1f}%", delta_color="inverse", border=True)
 
+# === PÁGINA DE ANÁLISIS POR PRIORIDAD ===
+def pagina_analisis_prioridad():
+    st.title("🎯 Análisis por Prioridad de Sitio")
     
-    st.markdown("---")
+    datos = st.session_state.datos
     
-    # === ANÁLISIS POR PRIORIDAD ===
-    st.header("Análisis por Prioridad de Sitio")
+    if datos is None:
+        st.info("📂 Por favor carga un archivo Excel para iniciar el análisis.")
+        return
     
     grupos_prioridades = {
         "P1": "P_1", "P2": "P_2", "P3": "P_3",
@@ -492,24 +531,24 @@ if ARCHIVO:
     for (nombre_tab, codigo_prioridad), tab in zip(grupos_prioridades.items(), tabs):
         with tab:
             # Filtrar sitios de esta prioridad
-            sitios_prioridad = prioridad_df[prioridad_df[COL_PRIORIDAD] == codigo_prioridad][COL_SITE].unique()
+            sitios_prioridad = datos['prioridad_df'][datos['prioridad_df'][COL_PRIORIDAD] == codigo_prioridad][COL_SITE].unique()
             
             # Sitios con problemas en esta prioridad (problemas de eliminacion de especialidades y de menos mttos este mes )
             sitios_con_alerta = [s for s in sitios_prioridad 
-                                if (s in eliminadas and eliminadas[s]) or 
-                                (s in tendencias and "DECRECIENDO" in tendencias[s]["tendencia"])]
+                                if (s in datos['eliminadas'] and datos['eliminadas'][s]) or 
+                                (s in datos['tendencias'] and "DECRECIENDO" in datos['tendencias'][s]["tendencia"])]
             
             if sitios_con_alerta:
                 st.write(f"**⚠️ {len(sitios_con_alerta)} sitios con alertas en {nombre_tab}**")
                 
                 for site in sitios_con_alerta:
-                    site_data = conteo_ejecutadas[conteo_ejecutadas[COL_SITE] == site].sort_values("MES")
-                    riesgo_sitio = riesgos.get(site, "🟢 BAJO RIESGO")
-                    total_perdidos = mantenimientos_perdidos.get(site, 0)
+                    site_data = datos['conteo_ejecutadas'][datos['conteo_ejecutadas'][COL_SITE] == site].sort_values("MES")
+                    riesgo_sitio = datos['riesgos'].get(site, "🟢 BAJO RIESGO")
+                    total_perdidos = datos['mantenimientos_perdidos'].get(site, 0)
                     
                     # Determinar el tipo de problema para el título
-                    tiene_eliminadas = site in eliminadas and eliminadas[site]
-                    esta_decreciendo = site in tendencias and "DECRECIENDO" in tendencias[site]["tendencia"]
+                    tiene_eliminadas = site in datos['eliminadas'] and datos['eliminadas'][site]
+                    esta_decreciendo = site in datos['tendencias'] and "DECRECIENDO" in datos['tendencias'][site]["tendencia"]
                     
                     titulo_problema = ""
                     if tiene_eliminadas and esta_decreciendo:
@@ -521,14 +560,14 @@ if ARCHIVO:
                     
                     with st.expander(f"{riesgo_sitio} | {site} — {titulo_problema}"):
                         # Información de tendencia
-                        if site in tendencias:
-                            tend = tendencias[site]
+                        if site in datos['tendencias']:
+                            tend = datos['tendencias'][site]
                             st.metric("Tendencia", tend["tendencia"], f"{tend['valor']:+d} mttos")
                         
                         # Especialidades eliminadas (si aplica)
                         if tiene_eliminadas:
                             st.write("**🔴 Especialidades eliminadas:**")
-                            for esp in eliminadas[site]:
+                            for esp in datos['eliminadas'][site]:
                                 serie_esp = site_data[esp].fillna(0).astype(int)
                                 max_hist = serie_esp.max()
                                 actual = serie_esp.iloc[-1] if len(serie_esp) > 0 else 0
@@ -545,35 +584,99 @@ if ARCHIVO:
                             value_name="Cantidad"
                         )
                         st.bar_chart(df_grafico, x="MES", y="Cantidad", color="Especialidad", horizontal=True)
-    
-    # === DESCARGA DE REPORTE ===
-    st.markdown("---")
-    st.header("📥 Descarga de Reporte")
-    
-    with pd.ExcelWriter("Reporte_Mantenimientos.xlsx") as writer:
-        desempeno_contratistas.to_excel(writer, sheet_name="Desempeño_Contratistas")
-        contratistas_problematicos.to_excel(writer, sheet_name="Contratistas_Problemáticos")
-        
-        # Hoja de riesgos
-        df_riesgos = pd.DataFrame([
-            {
-                "Sitio": site,
-                "Riesgo": riesgo,
-                "Score": scores[site],
-                "Especialidades_Eliminadas": len(eliminadas.get(site, [])),
-                "Mttos_Perdidos": mantenimientos_perdidos.get(site, 0)
-            }
-            for site, riesgo in riesgos.items()
-        ]).sort_values("Score", ascending=False)
-        df_riesgos.to_excel(writer, sheet_name="Análisis_Riesgo", index=False)
-    
-    with open("Reporte_Mantenimientos.xlsx", "rb") as file:
-        st.download_button(
-            label="⬇️ Descargar Reporte Completo en Excel",
-            data=file,
-            file_name=f"Reporte_Mantenimientos_{datetime.now().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+            else:
+                st.success(f"✅ No hay sitios con alertas en {nombre_tab}")
 
-else:
-    st.info("📂 Por favor carga un archivo Excel para iniciar el análisis.")
+# === PÁGINA DE DETALLE POR ESPECIALIDAD ===
+def pagina_especialidades():
+    st.title("🔧 Análisis por Especialidad")
+    
+    datos = st.session_state.datos
+    
+    if datos is None:
+        st.info("📂 Por favor carga un archivo Excel para iniciar el análisis.")
+        return
+    
+    st.header("Análisis Detallado por Especialidad")
+    
+    # Seleccionar especialidad
+    especialidad_seleccionada = st.selectbox(
+        "Selecciona una especialidad para analizar:",
+        ESPECIALIDADES
+    )
+    
+    if especialidad_seleccionada:
+        # Filtrar datos por especialidad
+        df_especialidad = datos['df'][datos['df'][COL_ESPECIALIDAD] == especialidad_seleccionada]
+        
+        # Métricas de la especialidad
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            total_mttos = len(df_especialidad)
+            st.metric("Total Mantenimientos", total_mttos, border=True)
+        
+        with col2:
+            ejecutados = len(df_especialidad[df_especialidad[COL_ESTADO].str.lower() == "ejecutado"])
+            porcentaje_ejecutado = (ejecutados / total_mttos * 100) if total_mttos > 0 else 0
+            st.metric("Ejecutados", ejecutados, f"{porcentaje_ejecutado:.1f}%", border=True)
+        
+        with col3:
+            pendientes = len(df_especialidad[df_especialidad[COL_ESTADO].str.lower() == "pendiente"])
+            porcentaje_pendiente = (pendientes / total_mttos * 100) if total_mttos > 0 else 0
+            st.metric("Pendientes", pendientes, f"{porcentaje_pendiente:.1f}%", border=True)
+        
+        with col4:
+            cancelados = len(df_especialidad[df_especialidad[COL_ESTADO].str.lower() == "cancelado"])
+            porcentaje_cancelado = (cancelados / total_mttos * 100) if total_mttos > 0 else 0
+            st.metric("Cancelados", cancelados, f"{porcentaje_cancelado:.1f}%", delta_color="inverse", border=True)
+        
+        # Evolución temporal
+        st.subheader(f"Evolución Temporal - {especialidad_seleccionada}")
+        evolucion = df_especialidad.groupby(["MES", COL_ESTADO]).size().unstack(fill_value=0)
+        if not evolucion.empty:
+            st.line_chart(evolucion)
+        else:
+            st.info("No hay datos suficientes para mostrar la evolución temporal")
+        
+        # Top sitios con problemas en esta especialidad
+        st.subheader(f"Sitios con Problemas - {especialidad_seleccionada}")
+        
+        sitios_problema = []
+        for site in datos['eliminadas']:
+            if especialidad_seleccionada in datos['eliminadas'][site]:
+                sitios_problema.append(site)
+        
+        if sitios_problema:
+            st.write(f"**{len(sitios_problema)} sitios tienen problemas con {especialidad_seleccionada}:**")
+            for sitio in sitios_problema:
+                st.write(f"- {sitio}")
+        else:
+            st.success(f"✅ No hay sitios con problemas en {especialidad_seleccionada}")
+
+# === CONFIGURACIÓN PRINCIPAL ===
+def main():
+    # Inicializar datos en session_state si no existen
+    if 'datos' not in st.session_state:
+        st.session_state.datos = cargar_datos()
+    
+    
+    pagina = st.segmented_control(
+        " ",
+        ["Reporte General", "Mantenimientos Pendientes", "Análisis por Prioridad", "Análisis FLM", "Especialidades"]
+    )
+    
+    # Navegación entre páginas
+    if pagina == "Reporte General":
+        pagina_reporte_general()
+    elif pagina == "Análisis FLM":
+        pagina_analisis_flm()
+    elif pagina == "Análisis por Prioridad":
+        pagina_analisis_prioridad()
+    elif pagina == "Especialidades":
+        pagina_especialidades()
+    elif pagina == "Mantenimientos Pendientes":
+        pagina_pendientes()
+
+if __name__ == "__main__":
+    main()
