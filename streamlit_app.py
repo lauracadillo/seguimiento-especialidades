@@ -13,6 +13,7 @@ HOJA = "Data"
 
 # Nombres de columnas
 COL_ESPECIALIDAD = "SUB_ESPECIALIDAD"
+COL_SITE_ID = "Site Id"
 COL_SITE = "Site Id Name"
 COL_PRIORIDAD = "Site Priority"
 COL_CONTRATISTA = "Contratista Sitio"
@@ -67,7 +68,7 @@ def calcular_score_riesgo(site, eliminadas, mantenimientos_perdidos, diferencias
     else:
         return "🟢 BAJO RIESGO", score
 
-def analizar_desempeno_contratistas(df, col_contratista, col_site, col_estado):
+def analizar_desempeno_contratistas(df, col_contratista, col_site_id, col_estado):
     """
     Analiza el desempeño de contratistas enfocado en estados de mantenimiento.
     Retorna métricas detalladas por contratista.
@@ -94,7 +95,7 @@ def analizar_desempeno_contratistas(df, col_contratista, col_site, col_estado):
         desempeno['% Pendiente'] = 0
     
     # Contar sitios únicos por contratista
-    sitios_por_contratista = df.groupby(col_contratista)[col_site].nunique()
+    sitios_por_contratista = df.groupby(col_contratista)[col_site_id].nunique()
     desempeno['Sitios_Atendidos'] = sitios_por_contratista
     
     # Identificar contratistas problemáticos
@@ -110,13 +111,13 @@ def analizar_desempeno_contratistas(df, col_contratista, col_site, col_estado):
     
     return desempeno[columnas_disponibles], contratistas_problematicos
 
-def detectar_especialidades_eliminadas(conteo_df, col_site, especialidades):
+def detectar_especialidades_eliminadas(conteo_df,col_site_id,  especialidades):
     """Detecta especialidades que han sido eliminadas permanentemente (3+ meses consecutivos de caída)"""
     eliminadas = {}
     mantenimientos_perdidos = {}
     
-    for site in conteo_df[col_site].unique():
-        site_data = conteo_df[conteo_df[col_site] == site].sort_values("MES")
+    for site in conteo_df[col_site_id].unique():
+        site_data = conteo_df[conteo_df[col_site_id] == site].sort_values("MES")
         eliminadas[site] = []
         mantenimientos_perdidos[site] = 0
         
@@ -153,12 +154,12 @@ def detectar_especialidades_eliminadas(conteo_df, col_site, especialidades):
     
     return eliminadas, mantenimientos_perdidos
 
-def calcular_tendencias(conteo_df, col_site):
+def calcular_tendencias(conteo_df, col_site_id):
     """Calcula la tendencia mes a mes para cada sitio"""
     tendencias = {}
     
-    for site in conteo_df[col_site].unique():
-        site_data = conteo_df[conteo_df[col_site] == site].sort_values("MES")
+    for site in conteo_df[col_site_id].unique():
+        site_data = conteo_df[conteo_df[col_site_id] == site].sort_values("MES")
         
         if len(site_data) < 2:
             continue
@@ -182,7 +183,7 @@ def calcular_tendencias(conteo_df, col_site):
     
     return tendencias
 
-def diferencia_mtto_anterior(conteo_df, col_site):
+def diferencia_mtto_anterior(conteo_df, col_site_id):
     """
     Analiza la diferencia de mantenimientos con respecto al mes anterior.
     Esta función es VITAL para detectar caídas en la ejecución.
@@ -190,8 +191,8 @@ def diferencia_mtto_anterior(conteo_df, col_site):
     """
     diferencias = {}
     
-    for site in conteo_df[col_site].unique():
-        site_data = conteo_df[conteo_df[col_site] == site].sort_values("MES")
+    for site in conteo_df[col_site_id].unique():
+        site_data = conteo_df[conteo_df[col_site_id] == site].sort_values("MES")
         
         if len(site_data) < 2:
             diferencias[site] = {
@@ -215,7 +216,7 @@ def diferencia_mtto_anterior(conteo_df, col_site):
     
     return diferencias
 
-def verificar_pendientes_no_ejecutados(df, col_site, col_especialidad, col_estado, col_mes):
+def verificar_pendientes_no_ejecutados(df, col_site_id, col_site, col_especialidad, col_estado, col_mes):
     """
     Verifica si los mantenimientos marcados como 'Pendiente' fueron ejecutados
     en el SIGUIENTE mantenimiento programado (sin importar cuántos meses después).
@@ -230,19 +231,38 @@ def verificar_pendientes_no_ejecutados(df, col_site, col_especialidad, col_estad
     df_temp[col_estado] = df_temp[col_estado].str.lower().str.strip()
     
     # Ordenar por sitio, especialidad y mes
-    df_temp = df_temp.sort_values([col_site, col_especialidad, col_mes])
+    df_temp = df_temp.sort_values([col_site_id, col_site, col_especialidad, col_mes])
     
     # Filtrar solo pendientes
     df_pendientes = df_temp[df_temp[col_estado] == "pendiente"]
     
     for idx, row in df_pendientes.iterrows():
-        sitio = row[col_site]
+        sitio_id = row[col_site_id]
+        sitio_name = row[col_site]
         especialidad = row[col_especialidad]
         mes_pendiente = row[col_mes]
         
+        # === MODIFICADO: Contar mantenimientos de LA MISMA SUBESPECIALIDAD ===
+        # Mantenimientos programados de esta especialidad en el mes pendiente
+        mttos_programados_mes_pendiente = len(df_temp[
+            (df_temp[col_site_id] == sitio_id) &
+            (df_temp[col_site] == sitio_name) &
+            (df_temp[col_especialidad] == especialidad) &  # ← FILTRAR POR ESPECIALIDAD
+            (df_temp["MES"] == mes_pendiente)
+        ])
+        
+        # Mantenimientos ejecutados de esta especialidad en el mes pendiente
+        mttos_ejecutados_mes_pendiente = len(df_temp[
+            (df_temp[col_site_id] == sitio_id) &
+            (df_temp[col_site] == sitio_name) &
+            (df_temp[col_especialidad] == especialidad) &  # ← FILTRAR POR ESPECIALIDAD
+            (df_temp["MES"] == mes_pendiente) &
+            (df_temp[col_estado] == "ejecutado")
+        ])
+        
         # Buscar TODOS los registros del mismo sitio+especialidad
         registros_misma_combinacion = df_temp[
-            (df_temp[col_site] == sitio) &
+            (df_temp[col_site_id] == sitio_id) &
             (df_temp[col_especialidad] == especialidad)
         ].sort_values(col_mes)
         
@@ -259,6 +279,22 @@ def verificar_pendientes_no_ejecutados(df, col_site, col_especialidad, col_estad
                 
                 mes_siguiente = siguiente_registro[col_mes]
                 estado_siguiente = siguiente_registro[col_estado]
+                
+                # === MODIFICADO: Contar mantenimientos de LA MISMA SUBESPECIALIDAD para el mes siguiente ===
+                mttos_programados_mes_siguiente = len(df_temp[
+                    (df_temp[col_site_id] == sitio_id) &
+                    (df_temp[col_site] == sitio_name) &
+                    (df_temp[col_especialidad] == especialidad) &  # ← FILTRAR POR ESPECIALIDAD
+                    (df_temp["MES"] == mes_siguiente)
+                ])
+                
+                mttos_ejecutados_mes_siguiente = len(df_temp[
+                    (df_temp[col_site_id] == sitio_id) &
+                    (df_temp[col_site] == sitio_name) &
+                    (df_temp[col_especialidad] == especialidad) &  # ← FILTRAR POR ESPECIALIDAD
+                    (df_temp["MES"] == mes_siguiente) &
+                    (df_temp[col_estado] == "ejecutado")
+                ])
                 
                 # Calcular diferencia de meses (aproximada)
                 try:
@@ -289,14 +325,18 @@ def verificar_pendientes_no_ejecutados(df, col_site, col_especialidad, col_estad
                         severidad = "MEDIA"
                     
                     alertas_pendientes.append({
-                        "sitio": sitio,
+                        "site ID": sitio_id,
+                        "site": sitio_name,
                         "especialidad": especialidad,
                         "mes_pendiente": mes_pendiente,
                         "mes_siguiente_mtto": mes_siguiente,
                         "meses_entre_mttos": meses_diferencia,
                         "estado_siguiente": estado_siguiente.upper(),
                         "dias_sin_ejecutar": f"{dias_aproximados}+",
-                        "severidad": severidad
+                        "severidad": severidad,
+                        # === NUEVAS COLUMNAS AGREGADAS ===
+                        "ejecutados_mes_pendiente": f"{mttos_ejecutados_mes_pendiente}/{mttos_programados_mes_pendiente}",
+                        "ejecutados_mes_siguiente": f"{mttos_ejecutados_mes_siguiente}/{mttos_programados_mes_siguiente}"
                     })
     
     return alertas_pendientes
@@ -320,7 +360,7 @@ def cargar_datos():
         
         # === CONTEO DE ESPECIALIDADES EJECUTADAS ===
         conteo_ejecutadas = (
-            df_ejecutados.groupby([COL_SITE, "MES", COL_ESPECIALIDAD])
+            df_ejecutados.groupby([COL_SITE_ID, COL_SITE, "MES", COL_ESPECIALIDAD])
             .size()
             .unstack(fill_value=0)
         )
@@ -335,24 +375,24 @@ def cargar_datos():
         
         # === ANÁLISIS ===
         eliminadas, mantenimientos_perdidos = detectar_especialidades_eliminadas(
-            conteo_ejecutadas, COL_SITE, ESPECIALIDADES
+            conteo_ejecutadas, COL_SITE_ID, ESPECIALIDADES
         )
-        diferencias_mtto = diferencia_mtto_anterior(conteo_ejecutadas, COL_SITE)
-        tendencias = calcular_tendencias(conteo_ejecutadas, COL_SITE)
+        diferencias_mtto = diferencia_mtto_anterior(conteo_ejecutadas, COL_SITE_ID)
+        tendencias = calcular_tendencias(conteo_ejecutadas, COL_SITE_ID)
         desempeno_contratistas, contratistas_problematicos = analizar_desempeno_contratistas(
-            df, COL_CONTRATISTA, COL_SITE, COL_ESTADO
+            df, COL_CONTRATISTA, COL_SITE_ID, COL_ESTADO
         )
         
         # Verificar pendientes no ejecutados
         alertas_pendientes = verificar_pendientes_no_ejecutados(
-            df, COL_SITE, COL_ESPECIALIDAD, COL_ESTADO, "MES"
+            df, COL_SITE_ID, COL_SITE, COL_ESPECIALIDAD, COL_ESTADO, "MES"
         )
         
         # Calcular riesgos
-        prioridad_df = df[[COL_SITE, COL_PRIORIDAD]].drop_duplicates()
+        prioridad_df = df[[COL_SITE_ID, COL_SITE, COL_PRIORIDAD]].drop_duplicates()
         riesgos = {}
         scores = {}
-        for site in df[COL_SITE].unique():
+        for site in df[COL_SITE_ID].unique():
             riesgo, score = calcular_score_riesgo(
                 site, eliminadas, mantenimientos_perdidos, diferencias_mtto, prioridad_df
             )
@@ -392,7 +432,7 @@ def pagina_reporte_general():
     
     # === MÉTRICAS GLOBALES ===
     st.header("📈 Métricas Globales")
-    total_sitios = datos['df'][COL_SITE].nunique()
+    total_sitios = datos['df'][COL_SITE_ID].nunique()
     tasa_ejecucion = (len(datos['df_ejecutados']) / len(datos['df']) * 100) if len(datos['df']) > 0 else 0 
     sitios_con_problemas = len([s for s, elims in datos['eliminadas'].items() if elims])
 
@@ -450,23 +490,60 @@ def pagina_pendientes():
         
         df_alertas = pd.DataFrame(datos['alertas_pendientes'])
         
-        # Aplicar colores según severidad
-        def colorear_severidad(val):
-            if val == 'CRÍTICA':
-                return 'background-color: #fee2e2; color: #991b1b; font-weight: bold'
-            elif val == 'ALTA':
-                return 'background-color: #fed7aa; color: #9a3412; font-weight: bold'
-            elif val == 'MEDIA':
-                return 'background-color: #fef3c7; color: #92400e; font-weight: bold'
-            return ''
+        # VERIFICAR SI LAS COLUMNAS NUEVAS EXISTEN, SI NO, CREARLAS CON VALORES POR DEFECTO
+        if 'ejecutados_mes_pendiente' not in df_alertas.columns:
+            df_alertas['ejecutados_mes_pendiente'] = 'N/A'
+        if 'ejecutados_mes_siguiente' not in df_alertas.columns:
+            df_alertas['ejecutados_mes_siguiente'] = 'N/A'
         
-        st.dataframe(
-            df_alertas.style.map(colorear_severidad, subset=['severidad']),
-            width='stretch'
+        # Reordenar columnas para mejor visualización
+        column_order = [
+            "site ID", "site", "especialidad", 
+            "mes_pendiente", "ejecutados_mes_pendiente",
+            "mes_siguiente_mtto", "ejecutados_mes_siguiente",
+            "meses_entre_mttos", "estado_siguiente", 
+            "dias_sin_ejecutar", "severidad"
+        ]
+        
+        # Filtrar solo las columnas que existen en el DataFrame
+        columnas_disponibles = [col for col in column_order if col in df_alertas.columns]
+        
+        # Función para aplicar estilos
+        def aplicar_estilos(df):
+            """
+            Aplica estilos de colores al DataFrame completo
+            """
+            styles = pd.DataFrame('', index=df.index, columns=df.columns)
+            
+            # Colorear columna 'severidad'
+            if 'severidad' in df.columns:
+                styles['severidad'] = df['severidad'].apply(
+                    lambda x: 'background-color: #fee2e2; color: #991b1b; font-weight: bold' if x == 'CRÍTICA' 
+                    else 'background-color: #fed7aa; color: #9a3412; font-weight: bold' if x == 'ALTA'
+                    else 'background-color: #fef3c7; color: #92400e; font-weight: bold' if x == 'MEDIA'
+                    else ''
+                )
+            
+            # Colorear las nuevas columnas de azul
+            if 'ejecutados_mes_pendiente' in df.columns:
+                styles['ejecutados_mes_pendiente'] = 'background-color: #e6f3ff; color: #0066cc; font-weight: bold'
+            
+            if 'ejecutados_mes_siguiente' in df.columns:
+                styles['ejecutados_mes_siguiente'] = 'background-color: #e6f3ff; color: #0066cc; font-weight: bold'
+            
+            return styles
+        
+        # Aplicar estilos
+        styled_df = df_alertas[columnas_disponibles].style.apply(
+            aplicar_estilos, 
+            axis=None
         )
+        
+        st.dataframe(styled_df, width='stretch', hide_index=True)
+        
+        
     else:
         st.success("✅ No hay mantenimientos pendientes sin ejecutar")
-    
 
 # === PÁGINA DE ANÁLISIS DE FLM ===
 def pagina_analisis_flm():
@@ -531,7 +608,7 @@ def pagina_analisis_prioridad():
     for (nombre_tab, codigo_prioridad), tab in zip(grupos_prioridades.items(), tabs):
         with tab:
             # Filtrar sitios de esta prioridad
-            sitios_prioridad = datos['prioridad_df'][datos['prioridad_df'][COL_PRIORIDAD] == codigo_prioridad][COL_SITE].unique()
+            sitios_prioridad = datos['prioridad_df'][datos['prioridad_df'][COL_PRIORIDAD] == codigo_prioridad][COL_SITE_ID].unique()
             
             # Sitios con problemas en esta prioridad (problemas de eliminacion de especialidades y de menos mttos este mes )
             sitios_con_alerta = [s for s in sitios_prioridad 
@@ -542,9 +619,11 @@ def pagina_analisis_prioridad():
                 st.write(f"**⚠️ {len(sitios_con_alerta)} sitios con alertas en {nombre_tab}**")
                 
                 for site in sitios_con_alerta:
-                    site_data = datos['conteo_ejecutadas'][datos['conteo_ejecutadas'][COL_SITE] == site].sort_values("MES")
+                    site_data = datos['conteo_ejecutadas'][datos['conteo_ejecutadas'][COL_SITE_ID] == site].sort_values("MES")
                     riesgo_sitio = datos['riesgos'].get(site, "🟢 BAJO RIESGO")
                     total_perdidos = datos['mantenimientos_perdidos'].get(site, 0)
+                    site_name_row = datos['prioridad_df'][datos['prioridad_df'][COL_SITE_ID] == site]
+                    site_name = site_name_row[COL_SITE].iloc[0] if not site_name_row.empty else site
                     
                     # Determinar el tipo de problema para el título
                     tiene_eliminadas = site in datos['eliminadas'] and datos['eliminadas'][site]
@@ -558,7 +637,7 @@ def pagina_analisis_prioridad():
                     elif esta_decreciendo:
                         titulo_problema = "Menos mantenimientos realizados este mes"
                     
-                    with st.expander(f"{riesgo_sitio} | {site} — {titulo_problema}"):
+                    with st.expander(f"{riesgo_sitio} | {site} — {site_name} — {titulo_problema}"):
                         # Información de tendencia
                         if site in datos['tendencias']:
                             tend = datos['tendencias'][site]
@@ -576,7 +655,7 @@ def pagina_analisis_prioridad():
                         
                         # Gráfico de evolución
                         columnas_grafico = [c for c in site_data.columns 
-                                        if c not in [COL_SITE, "MES", "TOTAL"]]
+                                        if c not in [COL_SITE_ID, "MES", "TOTAL"]]
                         df_grafico = site_data.melt(
                             id_vars=["MES"],
                             value_vars=columnas_grafico,
