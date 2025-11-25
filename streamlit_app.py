@@ -62,11 +62,11 @@ def calcular_score_riesgo(site, eliminadas, mantenimientos_perdidos, diferencias
     
     # Clasificación de riesgo
     if score >= 10:
-        return "🔴 ALTO RIESGO", score
+        return "ALTO RIESGO", score
     elif score >= 5:
-        return "🟡 MEDIO RIESGO", score
+        return "MEDIO RIESGO", score
     else:
-        return "🟢 BAJO RIESGO", score
+        return "BAJO RIESGO", score
 
 def analizar_desempeno_contratistas(df, col_contratista, col_site_id, col_estado):
     """
@@ -556,7 +556,7 @@ def pagina_busqueda_site():
         
     
         # === ANÁLISIS DE RIESGO ===
-        riesgo_sitio = datos['riesgos'].get(site_buscado, "🟢 BAJO RIESGO")
+        riesgo_sitio = datos['riesgos'].get(site_buscado, "BAJO RIESGO")
         score_riesgo = datos['scores'].get(site_buscado, 0)
         
         if score_riesgo >= 10:
@@ -607,7 +607,7 @@ def pagina_busqueda_site():
         # === ESPECIALIDADES ELIMINADAS ===
         if site_buscado in datos['eliminadas'] and datos['eliminadas'][site_buscado]:
             st.markdown("---")
-            st.subheader("🔴 Especialidades Eliminadas")
+            st.subheader("Especialidades Eliminadas")
             
             total_perdidos = datos['mantenimientos_perdidos'].get(site_buscado, 0)
             st.warning(f"**{total_perdidos} mantenimientos perdidos por eliminación de especialidades**")
@@ -790,7 +790,7 @@ def pagina_analisis_flm():
                     f"{datos_contratista.get('% Cancelado', 0):.1f}%", delta_color="inverse", border=True)
 
 # === PÁGINA DE Sitios Problemáticos ===
-def pagina_analisis_prioridad():
+def pagina_sitios_problematicos():
     st.title("Sitios Problemáticos")
     
     datos = st.session_state.datos
@@ -798,6 +798,43 @@ def pagina_analisis_prioridad():
     if datos is None:
         st.info("📂 Por favor carga un archivo Excel para iniciar el análisis.")
         return
+    
+    # === SELECTORES DE TIPO DE PROBLEMA ===
+    st.markdown("### Seleccionar el tipo de problema a analizar:")
+    
+    col_btn1, col_btn2 = st.columns(2)
+    
+    with col_btn1:
+        if st.button("Especialidades Eliminadas", use_container_width=True, type="secondary"):
+            st.session_state.tipo_problema = "eliminadas"
+    
+    with col_btn2:
+        if st.button("Menos Mantenimientos vs Mes Anterior", use_container_width=True, type="secondary"):
+            st.session_state.tipo_problema = "decreciendo"
+    
+    # Inicializar tipo de problema si no existe
+    if 'tipo_problema' not in st.session_state:
+        st.session_state.tipo_problema = "eliminadas"
+    
+    st.markdown("---")
+    
+    # === MOSTRAR SEGÚN TIPO DE PROBLEMA SELECCIONADO ===
+    tipo_seleccionado = st.session_state.tipo_problema
+    
+    if tipo_seleccionado == "eliminadas":
+        mostrar_sitios_con_especialidades_eliminadas(datos)
+    else:
+        mostrar_sitios_con_menos_mantenimientos(datos)
+
+
+def mostrar_sitios_con_especialidades_eliminadas(datos):
+    """Muestra sitios que tienen especialidades eliminadas (3+ meses consecutivos sin hacerse)"""
+    
+    st.header("Sitios con Especialidades Eliminadas")
+    st.caption("Se consideran eliminadas las especialidades que no se ejecutaron durante 3 o más meses consecutivos respecto a su máximo histórico")
+    
+    # Contar sitios con problemas
+    sitios_con_eliminadas = {s: elims for s, elims in datos['eliminadas'].items() if elims}
     
     grupos_prioridades = {
         "P1": "P_1", "P2": "P_2", "P3": "P_3",
@@ -810,54 +847,72 @@ def pagina_analisis_prioridad():
     for (nombre_tab, codigo_prioridad), tab in zip(grupos_prioridades.items(), tabs):
         with tab:
             # Filtrar sitios de esta prioridad
-            sitios_prioridad = datos['prioridad_df'][datos['prioridad_df'][COL_PRIORIDAD] == codigo_prioridad][COL_SITE_ID].unique()
+            sitios_prioridad = datos['prioridad_df'][
+                datos['prioridad_df'][COL_PRIORIDAD] == codigo_prioridad
+            ][COL_SITE_ID].unique()
             
-            # Sitios con problemas en esta prioridad (problemas de eliminacion de especialidades y de menos mttos este mes )
-            sitios_con_alerta = [s for s in sitios_prioridad 
-                                if (s in datos['eliminadas'] and datos['eliminadas'][s]) or 
-                                (s in datos['tendencias'] and "DECRECIENDO" in datos['tendencias'][s]["tendencia"])]
+            # Sitios con especialidades eliminadas en esta prioridad
+            sitios_con_alerta = [
+                s for s in sitios_prioridad 
+                if s in datos['eliminadas'] and datos['eliminadas'][s]
+            ]
             
             if sitios_con_alerta:
-                st.write(f"**⚠️ {len(sitios_con_alerta)} sitios con alertas en {nombre_tab}**")
+                st.write(f"**⚠️ {len(sitios_con_alerta)} sitios con especialidades eliminadas en {nombre_tab}**")
                 
                 for site in sitios_con_alerta:
-                    site_data = datos['conteo_ejecutadas'][datos['conteo_ejecutadas'][COL_SITE_ID] == site].sort_values("MES")
-                    riesgo_sitio = datos['riesgos'].get(site, "🟢 BAJO RIESGO")
+                    site_data = datos['conteo_ejecutadas'][
+                        datos['conteo_ejecutadas'][COL_SITE_ID] == site
+                    ].sort_values("MES")
+                    
+                    riesgo_sitio = datos['riesgos'].get(site, "BAJO RIESGO")
                     total_perdidos = datos['mantenimientos_perdidos'].get(site, 0)
+                    
                     site_name_row = datos['prioridad_df'][datos['prioridad_df'][COL_SITE_ID] == site]
                     site_name = site_name_row[COL_SITE].iloc[0] if not site_name_row.empty else site
                     
-                    # Determinar el tipo de problema para el título
-                    tiene_eliminadas = site in datos['eliminadas'] and datos['eliminadas'][site]
-                    esta_decreciendo = site in datos['tendencias'] and "DECRECIENDO" in datos['tendencias'][site]["tendencia"]
-                    
-                    titulo_problema = ""
-                    if tiene_eliminadas and esta_decreciendo:
-                        titulo_problema = f"{total_perdidos} especialidades eliminadas y menos mantenimientos realizados este mes"
-                    elif tiene_eliminadas:
-                        titulo_problema = f"{total_perdidos} especialidades eliminadas"
-                    elif esta_decreciendo:
-                        titulo_problema = "Menos mantenimientos realizados este mes"
-                    
-                    with st.expander(f"{riesgo_sitio} | {site} — {site_name} — {titulo_problema}"):
-                        # Información de tendencia
-                        if site in datos['tendencias']:
-                            tend = datos['tendencias'][site]
-                            st.metric("Tendencia", tend["tendencia"], f"{tend['valor']:+d} mttos")
+                    num_especialidades_eliminadas = len(datos['eliminadas'][site])
+                                        
+                    with st.expander(
+                        f"{riesgo_sitio} | {site} — {site_name} — "
+                        f"{num_especialidades_eliminadas} especialidad(es) eliminada(s), "
+                        f"{total_perdidos} mttos perdidos"
+                    ):
+                        # Mostrar diferencia con mes anterior si existe
+                        if site in datos.get('diferencias_mtto', {}):
+                            dif_info = datos['diferencias_mtto'][site]
+                            col_dif1, col_dif2, col_dif3 = st.columns(3)
+                            
+                            with col_dif1:
+                                st.metric("Mes Anterior", f"{dif_info['mes_anterior']}")
+                            with col_dif2:
+                                st.metric("Mes Actual", f"{dif_info['mes_actual']}")
+                            with col_dif3:
+                                delta_valor = dif_info['diferencia']
+                                st.metric(
+                                    "Diferencia", 
+                                    f"{delta_valor:+d}",
+                                    delta=f"{delta_valor:+d} mttos",
+                                    delta_color="normal" if delta_valor >= 0 else "inverse"
+                                )
                         
-                        # Especialidades eliminadas (si aplica)
-                        if tiene_eliminadas:
-                            st.write("**🔴 Especialidades eliminadas:**")
-                            for esp in datos['eliminadas'][site]:
-                                serie_esp = site_data[esp].fillna(0).astype(int)
-                                max_hist = serie_esp.max()
-                                actual = serie_esp.iloc[-1] if len(serie_esp) > 0 else 0
-                                perdidos = max_hist - actual
-                                st.write(f"- **{esp}**: {perdidos} eliminados (máx: {max_hist}, actual: {actual})")
+                        # Especialidades eliminadas
+                        st.write("**Detalle de especialidades eliminadas:**")
+                        for esp in datos['eliminadas'][site]:
+                            serie_esp = site_data[esp].fillna(0).astype(int)
+                            max_hist = serie_esp.max()
+                            actual = serie_esp.iloc[-1] if len(serie_esp) > 0 else 0
+                            perdidos = max_hist - actual
+                            st.write(f"- **{esp}**: {perdidos} mttos perdidos (máx histórico: {max_hist}, actual: {actual})")
+                        
+                        st.markdown("---")
                         
                         # Gráfico de evolución
-                        columnas_grafico = [c for c in site_data.columns 
-                                        if c not in [COL_SITE_ID, "MES", "TOTAL"]]
+                        st.write("**📊 Evolución temporal de especialidades:**")
+                        columnas_grafico = [
+                            c for c in site_data.columns 
+                            if c not in [COL_SITE_ID, "MES", "TOTAL"]
+                        ]
                         df_grafico = site_data.melt(
                             id_vars=["MES"],
                             value_vars=columnas_grafico,
@@ -866,7 +921,153 @@ def pagina_analisis_prioridad():
                         )
                         st.bar_chart(df_grafico, x="MES", y="Cantidad", color="Especialidad", horizontal=True)
             else:
-                st.success(f"✅ No hay sitios con alertas en {nombre_tab}")
+                st.success(f"✅ No hay sitios con especialidades eliminadas en {nombre_tab}")
+
+
+def mostrar_sitios_con_menos_mantenimientos(datos):
+    """Muestra sitios que tienen menos mantenimientos en comparación al mes anterior"""
+    
+    st.header("📉 Sitios con Menos Mantenimientos vs Mes Anterior")
+    st.caption("Se muestran sitios donde el total de mantenimientos realizados disminuyó respecto al mes inmediato anterior")
+    
+    # Contar sitios con tendencia decreciente
+    sitios_decreciendo = [
+        s for s, t in datos['tendencias'].items() 
+        if "DECRECIENDO" in t["tendencia"]
+    ]
+    
+    # Calcular caída total
+    caida_total = sum(
+        abs(datos['tendencias'][s]['valor']) 
+        for s in sitios_decreciendo 
+        if s in datos['tendencias']
+    )
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Sitios en Decrecimiento", len(sitios_decreciendo))
+    with col2:
+        st.metric("Caída Total de Mttos", int(caida_total))
+    with col3:
+        promedio_caida = caida_total / len(sitios_decreciendo) if sitios_decreciendo else 0
+        st.metric("Caída Promedio por Sitio", f"{promedio_caida:.1f}")
+    
+    st.markdown("---")
+    
+    grupos_prioridades = {
+        "P1": "P_1", "P2": "P_2", "P3": "P_3",
+        "D1": "D_1", "D2": "D_2", "D3": "D_3",
+        "B1": "B_1", "B2": "B_2", "B3": "B_3"
+    }
+    
+    tabs = st.tabs([f"Sites {k}" for k in grupos_prioridades.keys()])
+    
+    for (nombre_tab, codigo_prioridad), tab in zip(grupos_prioridades.items(), tabs):
+        with tab:
+            # Filtrar sitios de esta prioridad
+            sitios_prioridad = datos['prioridad_df'][
+                datos['prioridad_df'][COL_PRIORIDAD] == codigo_prioridad
+            ][COL_SITE_ID].unique()
+            
+            # Sitios con tendencia decreciente en esta prioridad
+            sitios_con_alerta = [
+                s for s in sitios_prioridad 
+                if s in datos['tendencias'] and "DECRECIENDO" in datos['tendencias'][s]["tendencia"]
+            ]
+            
+            if sitios_con_alerta:
+                st.write(f"**⚠️ {len(sitios_con_alerta)} sitios con menos mantenimientos en {nombre_tab}**")
+                
+                # Ordenar por mayor caída
+                sitios_ordenados = sorted(
+                    sitios_con_alerta,
+                    key=lambda s: abs(datos['tendencias'][s]['valor']),
+                    reverse=True
+                )
+                
+                for site in sitios_ordenados:
+                    site_data = datos['conteo_ejecutadas'][
+                        datos['conteo_ejecutadas'][COL_SITE_ID] == site
+                    ].sort_values("MES")
+                    
+                    riesgo_sitio = datos['riesgos'].get(site, "BAJO RIESGO")
+                    
+                    site_name_row = datos['prioridad_df'][datos['prioridad_df'][COL_SITE_ID] == site]
+                    site_name = site_name_row[COL_SITE].iloc[0] if not site_name_row.empty else site
+                    
+                    tend = datos['tendencias'][site]
+                    caida = abs(tend['valor'])
+                    
+                    with st.expander(
+                        f"{riesgo_sitio} | {site} — {site_name} — "
+                        f"Cayó {caida:.0f} mantenimiento(s)"
+                    ):
+                        # Mostrar diferencia con mes anterior
+                        if site in datos.get('diferencias_mtto', {}):
+                            dif_info = datos['diferencias_mtto'][site]
+                            
+                            col_dif1, col_dif2, col_dif3 = st.columns(3)
+                            
+                            with col_dif1:
+                                st.metric("Mes Anterior", f"{dif_info['mes_anterior']}")
+                            with col_dif2:
+                                st.metric("Mes Actual", f"{dif_info['mes_actual']}")
+                            with col_dif3:
+                                delta_valor = dif_info['diferencia']
+                                st.metric(
+                                    "Diferencia", 
+                                    f"{delta_valor:+d}",
+                                    delta=f"{delta_valor:+d} mttos",
+                                    delta_color="inverse"
+                                )
+                            
+                            if dif_info['alerta']:
+                                st.error(f"⚠️ **ALERTA:** Disminución de {abs(delta_valor)} mantenimientos respecto al mes anterior")
+                        
+                        # Información de tendencia
+                        st.metric("Tendencia General", tend["tendencia"], f"{tend['valor']:+d} mttos")
+                        
+                        st.markdown("---")
+                        
+                        # Mostrar si también tiene especialidades eliminadas
+                        if site in datos['eliminadas'] and datos['eliminadas'][site]:
+                            st.warning(
+                                f"⚠️ **Nota:** Este sitio también tiene {len(datos['eliminadas'][site])} "
+                                "especialidad(es) eliminada(s). Ver en la sección 'Especialidades Eliminadas'"
+                            )
+                        
+                        st.markdown("---")
+                        
+                        # Tabla de evolución mensual
+                        st.write("**Evolución mensual de mantenimientos totales:**")
+                        evolucion_mensual = site_data[["MES", "TOTAL"]].tail(6)  # Últimos 6 meses
+                        st.dataframe(
+                            evolucion_mensual.style.background_gradient(
+                                subset=['TOTAL'], 
+                                cmap='RdYlGn',
+                                vmin=evolucion_mensual['TOTAL'].min(),
+                                vmax=evolucion_mensual['TOTAL'].max()
+                            ),
+                            use_container_width=True
+                        )
+                        
+                        st.markdown("---")
+                        
+                        # Gráfico de evolución
+                        st.write("**📈 Gráfico de evolución por especialidad:**")
+                        columnas_grafico = [
+                            c for c in site_data.columns 
+                            if c not in [COL_SITE_ID, "MES", "TOTAL"]
+                        ]
+                        df_grafico = site_data.melt(
+                            id_vars=["MES"],
+                            value_vars=columnas_grafico,
+                            var_name="Especialidad",
+                            value_name="Cantidad"
+                        )
+                        st.bar_chart(df_grafico, x="MES", y="Cantidad", color="Especialidad", horizontal=True)
+            else:
+                st.success(f"No hay sitios con menos mantenimientos en {nombre_tab}")
 
 # === PÁGINA DE DETALLE POR ESPECIALIDAD ===
 def pagina_especialidades():
@@ -965,7 +1166,7 @@ def main():
     elif st.session_state.pagina_actual == "Análisis FLM":
         pagina_analisis_flm()
     elif st.session_state.pagina_actual == "Sitios Problemáticos":
-        pagina_analisis_prioridad()
+        pagina_sitios_problematicos()
     elif st.session_state.pagina_actual == "Especialidades":
         pagina_especialidades()
     elif st.session_state.pagina_actual == "Mantenimientos Pendientes":
