@@ -487,7 +487,7 @@ def pagina_bienvenida():
 
 # === PÁGINA DE BÚSQUEDA POR SITE ID ===
 def pagina_busqueda_site():
-    st.title("🔍 Búsqueda por Site ID")
+    st.title("Búsqueda por Site ID")
     
     datos = st.session_state.datos
     
@@ -500,9 +500,9 @@ def pagina_busqueda_site():
     
     # Buscador con autocompletado
     site_buscado = st.selectbox(
-        "Buscar Site ID:",
+        "Ingresar el ID del sitio buscado:",
         options=[""] + lista_sites,
-        format_func=lambda x: "Selecciona un Site ID..." if x == "" else x
+        format_func=lambda x: "Escribe para buscar ... " if x == "" else x
     )
     
     if site_buscado and site_buscado != "":
@@ -749,7 +749,7 @@ def pagina_pendientes():
 
 # === PÁGINA DE ANÁLISIS DE FLM ===
 def pagina_analisis_flm():
-    st.title("👷 Análisis de desempeño de los FLM")
+    st.title("Análisis de desempeño de los FLM")
     
     datos = st.session_state.datos
     
@@ -791,7 +791,7 @@ def pagina_analisis_flm():
 
 # === PÁGINA DE Sitios Problemáticos ===
 def pagina_analisis_prioridad():
-    st.title("🎯 Sitios Problemáticos de Sitio")
+    st.title("Sitios Problemáticos")
     
     datos = st.session_state.datos
     
@@ -870,7 +870,7 @@ def pagina_analisis_prioridad():
 
 # === PÁGINA DE DETALLE POR ESPECIALIDAD ===
 def pagina_especialidades():
-    st.title("🔧 Análisis por Especialidad")
+    st.title("Análisis por Especialidad")
     
     datos = st.session_state.datos
     
