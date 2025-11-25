@@ -1,0 +1,6 @@
+[theme]
+backgroundColor="white"
+secondaryBackgroundColor="lavender"
+codeBackgroundColor="powderBlue"
+dataframeHeaderBackgroundColor ="lavender"
+primaryColor = "lightblue"

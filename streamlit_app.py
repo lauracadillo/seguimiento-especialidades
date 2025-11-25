@@ -438,60 +438,11 @@ def cargar_datos():
         }
     else:
         return None
-
-# === PÁGINA PRINCIPAL===
-def pagina_reporte_general():
-
-    st.title("📊 Auditoría Ejecución Especialidades Mtto Preventivo")
-    
-    datos = st.session_state.datos
-    
-    if datos is None:
-        st.info("📂 Por favor carga un archivo Excel para iniciar el análisis.")
-        return
-    
-    # === MÉTRICAS GLOBALES ===
-    st.header("📈 Métricas Globales")
-    total_sitios = datos['df'][COL_SITE_ID].nunique()
-    tasa_ejecucion = (len(datos['df_ejecutados']) / len(datos['df']) * 100) if len(datos['df']) > 0 else 0 
-    sitios_con_problemas = len([s for s, elims in datos['eliminadas'].items() if elims])
-
-    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-
-    with col_m1:
-        st.metric("Total Sitios", total_sitios, border = True)
-    with col_m2:
-        st.metric("Tasa Ejecución", f"{tasa_ejecucion:.1f}%", border = True)
-
-    with col_m3:
-        st.metric("Sitios con Problemas", sitios_con_problemas, border = True)
-
-    with col_m4:
-        if datos['alertas_pendientes']:
-            st.metric("Matenimientos pendientes", len(datos['alertas_pendientes']), 
-                         border = True)
-    
-    # === REPORTE EJECUTIVO ===
-    st.header("Reporte General")
-
-    st.subheader("📈 Tendencias en los sitios")
-    sitios_decreciendo = [s for s, t in datos['tendencias'].items() if "DECRECIENDO" in t["tendencia"]]
-    sitios_creciendo = [s for s, t in datos['tendencias'].items() if "CRECIENDO" in t["tendencia"]]
-    sitios_estables = [s for s, t in datos['tendencias'].items() if "ESTABLE" in t["tendencia"]]
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric("↘️ Menos mantenimientos en:", len(sitios_decreciendo), border=True)
-    with col2:
-        st.metric("↗️ Más mantenimientos en:", len(sitios_creciendo), border=True)
-    with col3: 
-        st.metric("➡️ Los mismos mantenimientos en:", len(sitios_estables), border=True)
     
 # === PÁGINA DE BIENVENIDA ===
 def pagina_bienvenida():
     # Header principal
-    st.title("🏢 Sistema de Control de Mantenimientos")
+    st.title("Control de Mantenimientos Preventivos")
     st.markdown("### Plataforma integral para auditoría y seguimiento de mantenimientos preventivos")
     
     datos = st.session_state.datos
@@ -500,191 +451,39 @@ def pagina_bienvenida():
         st.error("⚠️ No se pudieron cargar los datos. Verifica que el archivo Excel esté disponible.")
         return
     
-    # Métricas rápidas en la página principal
-    st.markdown("---")
-    st.subheader("📊 Vista General del Sistema")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    total_sitios = datos['df'][COL_SITE_ID].nunique()
-    tasa_ejecucion = (len(datos['df_ejecutados']) / len(datos['df']) * 100) if len(datos['df']) > 0 else 0
-    sitios_con_problemas = len([s for s, elims in datos['eliminadas'].items() if elims])
-    total_pendientes = len(datos['alertas_pendientes'])
-    
-    with col1:
-        st.metric("🏗️ Total de Sitios", total_sitios, border=True)
-    with col2:
-        st.metric("✅ Tasa de Ejecución", f"{tasa_ejecucion:.1f}%", border=True)
-    with col3:
-        st.metric("⚠️ Sitios con Problemas", sitios_con_problemas, border=True)
-    with col4:
-        st.metric("📋 Pendientes sin Ejecutar", total_pendientes, border=True)
-    
-    # Menú de navegación visual
-    st.markdown("---")
-    st.subheader("🗂️ Módulos Disponibles")
-    st.markdown("Selecciona un módulo para comenzar tu análisis:")
-    
-    # Fila 1 de módulos
-    col_a, col_b, col_c = st.columns(3)
-    
-    with col_a:
-        with st.container(border=True):
-            st.markdown("### 📊 Reporte General")
-            st.markdown("""
-            **Análisis ejecutivo completo:**
-            - Métricas globales del sistema
-            - Tendencias generales
-            - Resumen de sitios
-            - Indicadores clave de desempeño
-            
-            *Ideal para: Vista panorámica del estado actual*
-            """)
-            if st.button("Ir al Reporte General", use_container_width=True, type="primary"):
-                st.session_state.pagina_actual = "Reporte General"
-                st.rerun()
-    
-    with col_b:
-        with st.container(border=True):
-            st.markdown("### 🔍 Búsqueda por Site")
-            st.markdown("""
-            **Análisis detallado individual:**
-            - Búsqueda por Site ID
-            - Historial completo del sitio
-            - Evaluación de riesgo específica
-            - Especialidades y tendencias
-            
-            *Ideal para: Análisis profundo de un sitio específico*
-            """)
-            if st.button("Ir a Búsqueda por Site", use_container_width=True, type="primary"):
-                st.session_state.pagina_actual = "Búsqueda por Site"
-                st.rerun()
-    
-    with col_c:
-        with st.container(border=True):
-            st.markdown("### 📋 Mantenimientos Pendientes")
-            st.markdown("""
-            **Seguimiento de pendientes:**
-            - Mantenimientos sin ejecutar
-            - Niveles de severidad
-            - Tiempo de retraso
-            - Acciones requeridas
-            
-            *Ideal para: Gestión de tareas pendientes*
-            """)
-            if st.button("Ir a Pendientes", use_container_width=True, type="primary"):
-                st.session_state.pagina_actual = "Mantenimientos Pendientes"
-                st.rerun()
-    
-    # Fila 2 de módulos
-    st.markdown("")
-    col_d, col_e, col_f = st.columns(3)
-    
-    with col_d:
-        with st.container(border=True):
-            st.markdown("### 🎯 Análisis por Prioridad")
-            st.markdown("""
-            **Segmentación por criticidad:**
-            - Sitios P1, P2, P3
-            - Sitios D1, D2, D3
-            - Sitios B1, B2, B3
-            - Alertas por prioridad
-            
-            *Ideal para: Priorización de recursos*
-            """)
-            if st.button("Ir a Análisis por Prioridad", use_container_width=True, type="primary"):
-                st.session_state.pagina_actual = "Análisis por Prioridad"
-                st.rerun()
-    
-    with col_e:
-        with st.container(border=True):
-            st.markdown("### 👷 Análisis FLM")
-            st.markdown("""
-            **Desempeño de contratistas:**
-            - Métricas por FLM
-            - Tasas de ejecución
-            - Sitios atendidos
-            - Comparativas de rendimiento
-            
-            *Ideal para: Evaluación de proveedores*
-            """)
-            if st.button("Ir a Análisis FLM", use_container_width=True, type="primary"):
-                st.session_state.pagina_actual = "Análisis FLM"
-                st.rerun()
-    
-    with col_f:
-        with st.container(border=True):
-            st.markdown("### 🔧 Especialidades")
-            st.markdown("""
-            **Análisis técnico detallado:**
-            - Por tipo de especialidad
-            - Evolución temporal
-            - Sitios con problemas
-            - Tendencias técnicas
-            
-            *Ideal para: Análisis técnico especializado*
-            """)
-            if st.button("Ir a Especialidades", use_container_width=True, type="primary"):
-                st.session_state.pagina_actual = "Especialidades"
-                st.rerun()
     
     # Alertas destacadas
-    st.markdown("---")
     st.subheader("🚨 Alertas Críticas")
     
-    col_alert1, col_alert2 = st.columns(2)
+    # Sitios en alto riesgo
+    sitios_alto_riesgo = [s for s, r in datos['riesgos'].items() if "ALTO" in r]
+    if sitios_alto_riesgo:
+        st.error(f"**{len(sitios_alto_riesgo)} sitios en ALTO RIESGO**")
+        with st.expander("Ver sitios"):
+            for site in sitios_alto_riesgo[:10]:  # Mostrar máximo 10
+                site_name_row = datos['prioridad_df'][datos['prioridad_df'][COL_SITE_ID] == site]
+                site_name = site_name_row[COL_SITE].iloc[0] if not site_name_row.empty else site
+                st.write(f"- {site} — {site_name}")
+            if len(sitios_alto_riesgo) > 10:
+                st.write(f"*... y {len(sitios_alto_riesgo) - 10} más*")
+    else:
+        st.success("✅ No hay sitios en alto riesgo")
+
     
-    with col_alert1:
-        # Sitios en alto riesgo
-        sitios_alto_riesgo = [s for s, r in datos['riesgos'].items() if "ALTO" in r]
-        if sitios_alto_riesgo:
-            st.error(f"**{len(sitios_alto_riesgo)} sitios en ALTO RIESGO**")
-            with st.expander("Ver sitios"):
-                for site in sitios_alto_riesgo[:10]:  # Mostrar máximo 10
-                    site_name_row = datos['prioridad_df'][datos['prioridad_df'][COL_SITE_ID] == site]
-                    site_name = site_name_row[COL_SITE].iloc[0] if not site_name_row.empty else site
-                    st.write(f"- {site} — {site_name}")
-                if len(sitios_alto_riesgo) > 10:
-                    st.write(f"*... y {len(sitios_alto_riesgo) - 10} más*")
-        else:
-            st.success("✅ No hay sitios en alto riesgo")
-    
-    with col_alert2:
-        # Pendientes críticos
-        alertas_criticas = [a for a in datos['alertas_pendientes'] if a['severidad'] == 'CRÍTICA']
-        if alertas_criticas:
-            st.error(f"**{len(alertas_criticas)} mantenimientos con severidad CRÍTICA**")
-            with st.expander("Ver detalles"):
-                for alerta in alertas_criticas[:10]:  # Mostrar máximo 10
-                    st.write(f"- {alerta['site ID']} — {alerta['especialidad']} ({alerta['dias_sin_ejecutar']} días)")
-                if len(alertas_criticas) > 10:
-                    st.write(f"*... y {len(alertas_criticas) - 10} más*")
-        else:
-            st.success("✅ No hay pendientes críticos")
-    
-    # Información adicional
-    st.markdown("---")
-    st.info("""
-    💡 **Consejo:** Utiliza la barra de navegación superior para moverte entre los diferentes módulos. 
-    Cada módulo está diseñado para un tipo específico de análisis.
-    """)
     
     # Footer con información del sistema
     st.markdown("---")
     col_foot1, col_foot2, col_foot3 = st.columns(3)
     
     with col_foot1:
-        st.caption(f"📅 Datos actualizados")
-        st.caption(f"📊 {len(datos['df'])} registros totales")
+        st.caption(f"{len(datos['df'])} registros totales")
     
     with col_foot2:
-        st.caption(f"🔧 {len(ESPECIALIDADES)} especialidades monitoreadas")
-        st.caption(f"👷 {len(datos['desempeno_contratistas'])} contratistas activos")
+        meses_disponibles = datos['df']['MES'].nunique()
+        st.caption(f" {meses_disponibles} meses de historial")
     
     with col_foot3:
-        meses_disponibles = datos['df']['MES'].nunique()
-        st.caption(f"📈 {meses_disponibles} meses de historial")
-        st.caption(f"🏢 Versión 1.0")
+        st.caption(f" Versión 1.0")
 
 # === PÁGINA DE BÚSQUEDA POR SITE ID ===
 def pagina_busqueda_site():
@@ -717,19 +516,23 @@ def pagina_busqueda_site():
         site_name = site_info[COL_SITE].iloc[0]
         site_prioridad = site_info[COL_PRIORIDAD].iloc[0]
         
-        # Encabezado con información básica
-        st.header(f"{site_buscado} — {site_name}")
-        st.subheader(f"Prioridad: {site_prioridad}")
-        
-        # === MÉTRICAS PRINCIPALES ===
-        st.markdown("---")
-        st.subheader("📊 Resumen Ejecutivo")
-        
         # Filtrar datos del sitio
         df_site = datos['df'][datos['df'][COL_SITE_ID] == site_buscado]
         df_site_ejecutados = datos['df_ejecutados'][datos['df_ejecutados'][COL_SITE_ID] == site_buscado]
         df_site_pendientes = datos['df_pendientes'][datos['df_pendientes'][COL_SITE_ID] == site_buscado]
         df_site_cancelados = datos['df_cancelados'][datos['df_cancelados'][COL_SITE_ID] == site_buscado]
+        
+        contratista_site = df_site[COL_CONTRATISTA].iloc[0] if not df_site.empty else "No disponible"
+
+
+        
+        # Encabezado con información básica
+        st.header(f"{site_buscado} — {site_name}  — {site_prioridad} ")
+        st.subheader(f"FLM: {contratista_site} ")
+        
+        # === MÉTRICAS PRINCIPALES ===
+        st.markdown("---")
+        st.subheader("📊 Resumen Ejecutivo")
         
         col1, col2, col3, col4 = st.columns(4)
         
@@ -749,38 +552,42 @@ def pagina_busqueda_site():
         with col4:
             porcentaje = (cancelados / total_mttos * 100) if total_mttos > 0 else 0
             st.metric("Cancelados", cancelados, f"{porcentaje:.1f}%", delta_color="inverse", border=True)
+     
         
+    
         # === ANÁLISIS DE RIESGO ===
-        st.markdown("---")
-        st.subheader("⚠️ Evaluación de Riesgo")
-        
         riesgo_sitio = datos['riesgos'].get(site_buscado, "🟢 BAJO RIESGO")
         score_riesgo = datos['scores'].get(site_buscado, 0)
         
-        col_r1, col_r2 = st.columns(2)
+        if score_riesgo >= 10:
+            st.markdown("---")
+            st.subheader("⚠️ Evaluación de Riesgo")
+            
+            
+            col_r1, col_r2 = st.columns(2)
+            
+            with col_r1:
+                # Determinar color según nivel de riesgo
+                if "ALTO" in riesgo_sitio:
+                    st.error(f"**{riesgo_sitio}**")
+                elif "MEDIO" in riesgo_sitio:
+                    st.warning(f"**{riesgo_sitio}**")
+                else:
+                    st.success(f"**{riesgo_sitio}**")
+            
+            with col_r2:
+                st.metric("Score de Riesgo", score_riesgo, border=True)
         
-        with col_r1:
-            # Determinar color según nivel de riesgo
-            if "ALTO" in riesgo_sitio:
-                st.error(f"**{riesgo_sitio}**")
-            elif "MEDIO" in riesgo_sitio:
-                st.warning(f"**{riesgo_sitio}**")
-            else:
-                st.success(f"**{riesgo_sitio}**")
-        
-        with col_r2:
-            st.metric("Score de Riesgo", score_riesgo, border=True)
         
         # === TENDENCIA ===
-        st.markdown("---")
-        st.subheader("📈 Análisis de Tendencia")
+        
         
         if site_buscado in datos['tendencias']:
+            st.markdown("---")
+            st.subheader("📈 Análisis de Tendencia")
             tend = datos['tendencias'][site_buscado]
             
             col_t2, col_t3, col_t4 = st.columns(3)
-            
-            
             
             with col_t2:
                 st.metric("Variación vs Mes Anterior", 
@@ -833,44 +640,15 @@ def pagina_busqueda_site():
                 value_name="Cantidad"
             )
             
-            st.bar_chart(df_grafico, x="MES", y="Cantidad", color="Especialidad")
+            st.bar_chart(df_grafico, x="MES", y="Cantidad", color="Especialidad", horizontal=True)
             
             # Mostrar tabla de datos
-            with st.expander("Ver datos detallados"):
+            with st.expander("Ver como tabla"):
                 columnas_mostrar = ["MES"] + columnas_grafico + ["TOTAL"]
                 st.dataframe(site_data[columnas_mostrar], hide_index=True)
         else:
             st.info("No hay datos históricos disponibles para este sitio")
         
-        # === CONTRATISTA Y FLM ===
-        st.markdown("---")
-        st.subheader("👷 Información del Contratista")
-        
-        contratista_site = df_site[COL_CONTRATISTA].iloc[0] if not df_site.empty else "No disponible"
-        st.write(f"**Contratista asignado:** {contratista_site}")
-        
-        if contratista_site in datos['desempeno_contratistas'].index:
-            datos_contratista = datos['desempeno_contratistas'].loc[contratista_site]
-            
-            col_c1, col_c2, col_c3, col_c4 = st.columns(4)
-            
-            with col_c1:
-                st.metric("Sitios Atendidos", 
-                         f"{datos_contratista.get('Sitios_Atendidos', 0):.0f}", 
-                         border=True)
-            with col_c2:
-                st.metric("% Ejecutado", 
-                         f"{datos_contratista.get('% Ejecutado', 0):.1f}%", 
-                         border=True)
-            with col_c3:
-                st.metric("% Pendiente", 
-                         f"{datos_contratista.get('% Pendiente', 0):.1f}%", 
-                         border=True)
-            with col_c4:
-                st.metric("% Cancelado", 
-                         f"{datos_contratista.get('% Cancelado', 0):.1f}%", 
-                         delta_color="inverse", 
-                         border=True)
         
         # === ALERTAS DE PENDIENTES ===
         alertas_site = [a for a in datos['alertas_pendientes'] if a['site ID'] == site_buscado]
@@ -1011,9 +789,9 @@ def pagina_analisis_flm():
             st.metric("Cancelado", f"{datos_contratista.get('Cancelado', 0):.0f}", 
                     f"{datos_contratista.get('% Cancelado', 0):.1f}%", delta_color="inverse", border=True)
 
-# === PÁGINA DE ANÁLISIS POR PRIORIDAD ===
+# === PÁGINA DE Sitios Problemáticos ===
 def pagina_analisis_prioridad():
-    st.title("🎯 Análisis por Prioridad de Sitio")
+    st.title("🎯 Sitios Problemáticos de Sitio")
     
     datos = st.session_state.datos
     
@@ -1168,11 +946,11 @@ def main():
         st.session_state.pagina_actual = "Inicio"
     
     # Control de navegación
-    pagina = st.segmented_control(
-        "Navegación",
-        ["Inicio", "Reporte General", "Búsqueda por Site", "Mantenimientos Pendientes", 
-         "Análisis por Prioridad", "Análisis FLM", "Especialidades"],
-        default=st.session_state.pagina_actual
+    pagina = st.pills(
+        " ",
+        ["Inicio", "Búsqueda por Site ID", "Mantenimientos Pendientes", 
+         "Sitios Problemáticos", "Análisis FLM", "Especialidades"],
+        default=st.session_state.pagina_actual,width="stretch"
     )
     
     # Actualizar página actual
@@ -1182,13 +960,11 @@ def main():
     # Navegación entre páginas
     if st.session_state.pagina_actual == "Inicio":
         pagina_bienvenida()
-    elif st.session_state.pagina_actual == "Reporte General":
-        pagina_reporte_general()
-    elif st.session_state.pagina_actual == "Búsqueda por Site":
+    elif st.session_state.pagina_actual == "Búsqueda por Site ID":
         pagina_busqueda_site()
     elif st.session_state.pagina_actual == "Análisis FLM":
         pagina_analisis_flm()
-    elif st.session_state.pagina_actual == "Análisis por Prioridad":
+    elif st.session_state.pagina_actual == "Sitios Problemáticos":
         pagina_analisis_prioridad()
     elif st.session_state.pagina_actual == "Especialidades":
         pagina_especialidades()
