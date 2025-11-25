@@ -455,7 +455,7 @@ def pagina_bienvenida():
     
     
     # Alertas destacadas
-    st.subheader("🚨 Alertas Críticas")
+    st.subheader("Alertas Críticas")
     
     # Sitios en alto riesgo
     sitios_alto_riesgo = [s for s, r in datos['riesgos'].items() if "ALTO" in r]
@@ -469,7 +469,7 @@ def pagina_bienvenida():
             if len(sitios_alto_riesgo) > 10:
                 st.write(f"*... y {len(sitios_alto_riesgo) - 10} más*")
     else:
-        st.success("✅ No hay sitios en alto riesgo")
+        st.success("   No hay sitios en alto riesgo")
 
     
     
@@ -494,7 +494,7 @@ def pagina_busqueda_site():
     datos = st.session_state.datos
     
     if datos is None:
-        st.info("📂 Por favor carga un archivo Excel para iniciar el análisis.")
+        st.info(" Por favor carga un archivo Excel para iniciar el análisis.")
         return
     
     # Obtener lista de todos los Site IDs disponibles
@@ -674,7 +674,7 @@ def pagina_pendientes():
     datos = st.session_state.datos
     
     if datos is None:
-        st.info("📂 Por favor carga un archivo Excel para iniciar el análisis.")
+        st.info(" Por favor carga un archivo Excel para iniciar el análisis.")
         return
 
     # === ALERTAS DE PENDIENTES NO EJECUTADOS ===
@@ -738,7 +738,7 @@ def pagina_pendientes():
         
         
     else:
-        st.success("✅ No hay mantenimientos pendientes sin ejecutar")
+        st.success("   No hay mantenimientos pendientes sin ejecutar")
 
 # === PÁGINA DE ANÁLISIS DE FLM ===
 def pagina_analisis_flm():
@@ -747,7 +747,7 @@ def pagina_analisis_flm():
     datos = st.session_state.datos
     
     if datos is None:
-        st.info("📂 Por favor carga un archivo Excel para iniciar el análisis.")
+        st.info(" Por favor carga un archivo Excel para iniciar el análisis.")
         return
     
     # Mostrar todos los contratistas con detalles expandibles
@@ -788,7 +788,7 @@ def pagina_sitios_problematicos():
     datos = st.session_state.datos
     
     if datos is None:
-        st.info("📂 Por favor carga un archivo Excel para iniciar el análisis.")
+        st.info(" Por favor carga un archivo Excel para iniciar el análisis.")
         return
     
     col_btn1, col_btn2 = st.columns(2)
@@ -1044,7 +1044,7 @@ def pagina_especialidades():
     datos = st.session_state.datos
     
     if datos is None:
-        st.info("📂 Por favor carga un archivo Excel para iniciar el análisis.")
+        st.info(" Por favor carga un archivo Excel para iniciar el análisis.")
         return
     
     st.header("Análisis Detallado por Especialidad")
@@ -1102,7 +1102,7 @@ def pagina_especialidades():
             for sitio in sitios_problema:
                 st.write(f"- {sitio}")
         else:
-            st.success(f"✅ No hay sitios con problemas en {especialidad_seleccionada}")
+            st.success(f"   No hay sitios con problemas de {especialidad_seleccionada}")
 
 # === CONFIGURACIÓN PRINCIPAL ===
 def main():
