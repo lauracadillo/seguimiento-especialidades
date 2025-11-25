@@ -379,8 +379,10 @@ def cargar_datos():
         df_pendientes = df[df[COL_ESTADO].str.lower() == "pendiente"]
         
         # === CONTEO DE ESPECIALIDADES EJECUTADAS ===
+      
+
         conteo_ejecutadas = (
-            df_ejecutados.groupby([COL_SITE_ID, COL_SITE, "MES", COL_ESPECIALIDAD])
+            df_ejecutados.groupby([COL_SITE_ID, "MES", COL_ESPECIALIDAD])
             .size()
             .unstack(fill_value=0)
         )
@@ -523,8 +525,6 @@ def pagina_busqueda_site():
         df_site_cancelados = datos['df_cancelados'][datos['df_cancelados'][COL_SITE_ID] == site_buscado]
         
         contratista_site = df_site[COL_CONTRATISTA].iloc[0] if not df_site.empty else "No disponible"
-
-
         
         # Encabezado con información básica
         st.header(f"{site_buscado} — {site_name}  — {site_prioridad} ")
@@ -532,7 +532,7 @@ def pagina_busqueda_site():
         
         # === MÉTRICAS PRINCIPALES ===
         st.markdown("---")
-        st.subheader("📊 Resumen Ejecutivo")
+        st.subheader("Resumen del sitio")
         
         col1, col2, col3, col4 = st.columns(4)
         
@@ -561,30 +561,23 @@ def pagina_busqueda_site():
         
         if score_riesgo >= 10:
             st.markdown("---")
-            st.subheader("⚠️ Evaluación de Riesgo")
+            st.subheader("Evaluación de Riesgo")
             
             
-            col_r1, col_r2 = st.columns(2)
             
-            with col_r1:
-                # Determinar color según nivel de riesgo
-                if "ALTO" in riesgo_sitio:
-                    st.error(f"**{riesgo_sitio}**")
-                elif "MEDIO" in riesgo_sitio:
-                    st.warning(f"**{riesgo_sitio}**")
-                else:
-                    st.success(f"**{riesgo_sitio}**")
-            
-            with col_r2:
-                st.metric("Score de Riesgo", score_riesgo, border=True)
-        
+            if "ALTO" in riesgo_sitio:
+                st.error(f"**{riesgo_sitio}**")
+            elif "MEDIO" in riesgo_sitio:
+                st.warning(f"**{riesgo_sitio}**")
+            else:
+                st.success(f"**{riesgo_sitio}**")
         
         # === TENDENCIA ===
         
         
         if site_buscado in datos['tendencias']:
             st.markdown("---")
-            st.subheader("📈 Análisis de Tendencia")
+            st.subheader("Análisis de Tendencia")
             tend = datos['tendencias'][site_buscado]
             
             col_t2, col_t3, col_t4 = st.columns(3)
@@ -789,7 +782,6 @@ def pagina_analisis_flm():
             st.metric("Cancelado", f"{datos_contratista.get('Cancelado', 0):.0f}", 
                     f"{datos_contratista.get('% Cancelado', 0):.1f}%", delta_color="inverse", border=True)
 
-# === PÁGINA DE Sitios Problemáticos ===
 def pagina_sitios_problematicos():
     st.title("Sitios Problemáticos")
     
@@ -799,24 +791,19 @@ def pagina_sitios_problematicos():
         st.info("📂 Por favor carga un archivo Excel para iniciar el análisis.")
         return
     
-    # === SELECTORES DE TIPO DE PROBLEMA ===
-    st.markdown("### Seleccionar el tipo de problema a analizar:")
-    
     col_btn1, col_btn2 = st.columns(2)
     
     with col_btn1:
-        if st.button("Especialidades Eliminadas", use_container_width=True, type="secondary"):
+        if st.button("Especialidades Eliminadas", width="stretch", type="primary"):
             st.session_state.tipo_problema = "eliminadas"
     
     with col_btn2:
-        if st.button("Menos Mantenimientos vs Mes Anterior", use_container_width=True, type="secondary"):
+        if st.button("Menos Mantenimientos vs Mes Anterior", width="stretch" , type="primary"):
             st.session_state.tipo_problema = "decreciendo"
     
     # Inicializar tipo de problema si no existe
     if 'tipo_problema' not in st.session_state:
-        st.session_state.tipo_problema = "eliminadas"
-    
-    st.markdown("---")
+        st.session_state.tipo_problema = " "
     
     # === MOSTRAR SEGÚN TIPO DE PROBLEMA SELECCIONADO ===
     tipo_seleccionado = st.session_state.tipo_problema
@@ -832,10 +819,7 @@ def mostrar_sitios_con_especialidades_eliminadas(datos):
     
     st.header("Sitios con Especialidades Eliminadas")
     st.caption("Se consideran eliminadas las especialidades que no se ejecutaron durante 3 o más meses consecutivos respecto a su máximo histórico")
-    
-    # Contar sitios con problemas
-    sitios_con_eliminadas = {s: elims for s, elims in datos['eliminadas'].items() if elims}
-    
+
     grupos_prioridades = {
         "P1": "P_1", "P2": "P_2", "P3": "P_3",
         "D1": "D_1", "D2": "D_2", "D3": "D_3",
@@ -860,99 +844,86 @@ def mostrar_sitios_con_especialidades_eliminadas(datos):
             if sitios_con_alerta:
                 st.write(f"**⚠️ {len(sitios_con_alerta)} sitios con especialidades eliminadas en {nombre_tab}**")
                 
+                # Agrupar sitios por nivel de riesgo
+                sitios_por_riesgo = {
+                    "ALTO RIESGO": [],
+                    "MEDIO RIESGO": [],
+                    "BAJO RIESGO": []
+                }
+                
                 for site in sitios_con_alerta:
-                    site_data = datos['conteo_ejecutadas'][
-                        datos['conteo_ejecutadas'][COL_SITE_ID] == site
-                    ].sort_values("MES")
-                    
                     riesgo_sitio = datos['riesgos'].get(site, "BAJO RIESGO")
-                    total_perdidos = datos['mantenimientos_perdidos'].get(site, 0)
+                    sitios_por_riesgo[riesgo_sitio].append(site)
+                
+                # Mostrar por grupos de riesgo
+                for nivel_riesgo in ["ALTO RIESGO", "MEDIO RIESGO", "BAJO RIESGO"]:
+                    sitios_nivel = sitios_por_riesgo[nivel_riesgo]
                     
-                    site_name_row = datos['prioridad_df'][datos['prioridad_df'][COL_SITE_ID] == site]
-                    site_name = site_name_row[COL_SITE].iloc[0] if not site_name_row.empty else site
-                    
-                    num_especialidades_eliminadas = len(datos['eliminadas'][site])
-                                        
-                    with st.expander(
-                        f"{riesgo_sitio} | {site} — {site_name} — "
-                        f"{num_especialidades_eliminadas} especialidad(es) eliminada(s), "
-                        f"{total_perdidos} mttos perdidos"
-                    ):
-                        # Mostrar diferencia con mes anterior si existe
-                        if site in datos.get('diferencias_mtto', {}):
-                            dif_info = datos['diferencias_mtto'][site]
-                            col_dif1, col_dif2, col_dif3 = st.columns(3)
+                    if sitios_nivel:
+                        # Determinar color del badge
+                        if "ALTO" in nivel_riesgo:
+                            color_badge = "red"
+                        elif "MEDIO" in nivel_riesgo:
+                            color_badge = "orange"
+                        else:
+                            color_badge = "green"
+                        
+                        # Mostrar badge del nivel de riesgo
+                        
+                        st.markdown(f":{color_badge}-badge[{nivel_riesgo}]")
+                        
+                        
+                        # Mostrar cada sitio de este nivel de riesgo
+                        for site in sitios_nivel:
+                            site_data = datos['conteo_ejecutadas'][
+                                datos['conteo_ejecutadas'][COL_SITE_ID] == site
+                            ].sort_values("MES")
                             
-                            with col_dif1:
-                                st.metric("Mes Anterior", f"{dif_info['mes_anterior']}")
-                            with col_dif2:
-                                st.metric("Mes Actual", f"{dif_info['mes_actual']}")
-                            with col_dif3:
-                                delta_valor = dif_info['diferencia']
-                                st.metric(
-                                    "Diferencia", 
-                                    f"{delta_valor:+d}",
-                                    delta=f"{delta_valor:+d} mttos",
-                                    delta_color="normal" if delta_valor >= 0 else "inverse"
+                            total_perdidos = datos['mantenimientos_perdidos'].get(site, 0)
+                            
+                            site_name_row = datos['prioridad_df'][datos['prioridad_df'][COL_SITE_ID] == site]
+                            site_name = site_name_row[COL_SITE].iloc[0] if not site_name_row.empty else site
+                            
+                            num_especialidades_eliminadas = len(datos['eliminadas'][site])
+                            
+                            with st.expander(
+                                f"{site} — {site_name} — "
+                                f"{num_especialidades_eliminadas} especialidad(es) eliminada(s), "
+                                f"{total_perdidos} mttos perdidos"
+                            ):
+                                
+                                # Especialidades eliminadas
+                                st.write("**Detalle de especialidades eliminadas:**")
+                                for esp in datos['eliminadas'][site]:
+                                    serie_esp = site_data[esp].fillna(0).astype(int)
+                                    max_hist = serie_esp.max()
+                                    actual = serie_esp.iloc[-1] if len(serie_esp) > 0 else 0
+                                    perdidos = max_hist - actual
+                                    st.write(f"- **{esp}**: {perdidos} mttos perdidos (máx histórico: {max_hist}, actual: {actual})")
+                                
+                                st.markdown("---")
+                                
+                                # Gráfico de evolución
+                                st.write("**Evolución temporal de especialidades realizadas:**")
+                                columnas_grafico = [
+                                    c for c in site_data.columns 
+                                    if c not in [COL_SITE_ID, "MES", "TOTAL"]
+                                ]
+                                df_grafico = site_data.melt(
+                                    id_vars=["MES"],
+                                    value_vars=columnas_grafico,
+                                    var_name="Especialidad",
+                                    value_name="Cantidad"
                                 )
-                        
-                        # Especialidades eliminadas
-                        st.write("**Detalle de especialidades eliminadas:**")
-                        for esp in datos['eliminadas'][site]:
-                            serie_esp = site_data[esp].fillna(0).astype(int)
-                            max_hist = serie_esp.max()
-                            actual = serie_esp.iloc[-1] if len(serie_esp) > 0 else 0
-                            perdidos = max_hist - actual
-                            st.write(f"- **{esp}**: {perdidos} mttos perdidos (máx histórico: {max_hist}, actual: {actual})")
-                        
-                        st.markdown("---")
-                        
-                        # Gráfico de evolución
-                        st.write("**📊 Evolución temporal de especialidades:**")
-                        columnas_grafico = [
-                            c for c in site_data.columns 
-                            if c not in [COL_SITE_ID, "MES", "TOTAL"]
-                        ]
-                        df_grafico = site_data.melt(
-                            id_vars=["MES"],
-                            value_vars=columnas_grafico,
-                            var_name="Especialidad",
-                            value_name="Cantidad"
-                        )
-                        st.bar_chart(df_grafico, x="MES", y="Cantidad", color="Especialidad", horizontal=True)
+                                st.bar_chart(df_grafico, x="MES", y="Cantidad", color="Especialidad", horizontal=True)
             else:
-                st.success(f"✅ No hay sitios con especialidades eliminadas en {nombre_tab}")
-
+                st.success(f"No hay sitios de tipo {nombre_tab} con especialidades eliminadas")
 
 def mostrar_sitios_con_menos_mantenimientos(datos):
     """Muestra sitios que tienen menos mantenimientos en comparación al mes anterior"""
     
-    st.header("📉 Sitios con Menos Mantenimientos vs Mes Anterior")
+    st.header("Sitios con Menos Mantenimientos vs Mes Anterior")
     st.caption("Se muestran sitios donde el total de mantenimientos realizados disminuyó respecto al mes inmediato anterior")
-    
-    # Contar sitios con tendencia decreciente
-    sitios_decreciendo = [
-        s for s, t in datos['tendencias'].items() 
-        if "DECRECIENDO" in t["tendencia"]
-    ]
-    
-    # Calcular caída total
-    caida_total = sum(
-        abs(datos['tendencias'][s]['valor']) 
-        for s in sitios_decreciendo 
-        if s in datos['tendencias']
-    )
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Sitios en Decrecimiento", len(sitios_decreciendo))
-    with col2:
-        st.metric("Caída Total de Mttos", int(caida_total))
-    with col3:
-        promedio_caida = caida_total / len(sitios_decreciendo) if sitios_decreciendo else 0
-        st.metric("Caída Promedio por Sitio", f"{promedio_caida:.1f}")
-    
-    st.markdown("---")
     
     grupos_prioridades = {
         "P1": "P_1", "P2": "P_2", "P3": "P_3",
@@ -978,97 +949,94 @@ def mostrar_sitios_con_menos_mantenimientos(datos):
             if sitios_con_alerta:
                 st.write(f"**⚠️ {len(sitios_con_alerta)} sitios con menos mantenimientos en {nombre_tab}**")
                 
-                # Ordenar por mayor caída
-                sitios_ordenados = sorted(
-                    sitios_con_alerta,
-                    key=lambda s: abs(datos['tendencias'][s]['valor']),
-                    reverse=True
-                )
+                # Agrupar sitios por nivel de riesgo (igual que en la función anterior)
+                sitios_por_riesgo = {
+                    "ALTO RIESGO": [],
+                    "MEDIO RIESGO": [],
+                    "BAJO RIESGO": []
+                }
                 
-                for site in sitios_ordenados:
-                    site_data = datos['conteo_ejecutadas'][
-                        datos['conteo_ejecutadas'][COL_SITE_ID] == site
-                    ].sort_values("MES")
-                    
+                for site in sitios_con_alerta:
                     riesgo_sitio = datos['riesgos'].get(site, "BAJO RIESGO")
+                    sitios_por_riesgo[riesgo_sitio].append(site)
+                
+                # Mostrar por grupos de riesgo
+                for nivel_riesgo in ["ALTO RIESGO", "MEDIO RIESGO", "BAJO RIESGO"]:
+                    sitios_nivel = sitios_por_riesgo[nivel_riesgo]
                     
-                    site_name_row = datos['prioridad_df'][datos['prioridad_df'][COL_SITE_ID] == site]
-                    site_name = site_name_row[COL_SITE].iloc[0] if not site_name_row.empty else site
-                    
-                    tend = datos['tendencias'][site]
-                    caida = abs(tend['valor'])
-                    
-                    with st.expander(
-                        f"{riesgo_sitio} | {site} — {site_name} — "
-                        f"Cayó {caida:.0f} mantenimiento(s)"
-                    ):
-                        # Mostrar diferencia con mes anterior
-                        if site in datos.get('diferencias_mtto', {}):
-                            dif_info = datos['diferencias_mtto'][site]
+                    if sitios_nivel:
+                        # Determinar color del badge (igual que en la función anterior)
+                        if "ALTO" in nivel_riesgo:
+                            color_badge = "red"
+                        elif "MEDIO" in nivel_riesgo:
+                            color_badge = "orange"
+                        else:
+                            color_badge = "green"
+                        
+                        # Mostrar badge del nivel de riesgo
+                        st.markdown(f":{color_badge}-badge[{nivel_riesgo}]")
+                        
+                        # Ordenar por mayor caída dentro de cada nivel de riesgo
+                        sitios_ordenados = sorted(
+                            sitios_nivel,
+                            key=lambda s: abs(datos['tendencias'][s]['valor']),
+                            reverse=True
+                        )
+                        
+                        # Mostrar cada sitio de este nivel de riesgo
+                        for site in sitios_ordenados:
+                            site_data = datos['conteo_ejecutadas'][
+                                datos['conteo_ejecutadas'][COL_SITE_ID] == site
+                            ].sort_values("MES")
                             
-                            col_dif1, col_dif2, col_dif3 = st.columns(3)
+                            site_name_row = datos['prioridad_df'][datos['prioridad_df'][COL_SITE_ID] == site]
+                            site_name = site_name_row[COL_SITE].iloc[0] if not site_name_row.empty else site
                             
-                            with col_dif1:
-                                st.metric("Mes Anterior", f"{dif_info['mes_anterior']}")
-                            with col_dif2:
-                                st.metric("Mes Actual", f"{dif_info['mes_actual']}")
-                            with col_dif3:
-                                delta_valor = dif_info['diferencia']
-                                st.metric(
-                                    "Diferencia", 
-                                    f"{delta_valor:+d}",
-                                    delta=f"{delta_valor:+d} mttos",
-                                    delta_color="inverse"
+                            tend = datos['tendencias'][site]
+                            caida = abs(tend['valor'])
+                            
+                            with st.expander(
+                                f"{site} — {site_name} — "
+                                f"Cayó {caida:.0f} mantenimiento(s)"
+                            ):
+                                # Mostrar diferencia con mes anterior
+                                if site in datos.get('diferencias_mtto', {}):
+                                    dif_info = datos['diferencias_mtto'][site]
+                                    
+                                    col_dif1, col_dif2, col_dif3 = st.columns(3)
+                                    
+                                    with col_dif1:
+                                        st.metric("Mes Anterior", f"{dif_info['mes_anterior']}")
+                                    with col_dif2:
+                                        st.metric("Mes Actual", f"{dif_info['mes_actual']}")
+                                    with col_dif3:
+                                        delta_valor = dif_info['diferencia']
+                                        st.metric(
+                                            "Diferencia", 
+                                            f"{delta_valor:+d}",
+                                            delta=f"{delta_valor:+d} mttos"
+                                        )
+                                    
+                                # Mostrar también la tabla detallada
+                                columnas_grafico = [
+                                    c for c in site_data.columns 
+                                    if c not in [COL_SITE_ID, "MES", "TOTAL"]
+                                ]
+                                
+                                tabla_detallada = site_data[["MES"] + columnas_grafico].set_index("MES")
+                                
+                                st.write("**Visualización gráfica:**")
+                                df_grafico = site_data.melt(
+                                    id_vars=["MES"],
+                                    value_vars=columnas_grafico,
+                                    var_name="Especialidad",
+                                    value_name="Cantidad"
                                 )
-                            
-                            if dif_info['alerta']:
-                                st.error(f"⚠️ **ALERTA:** Disminución de {abs(delta_valor)} mantenimientos respecto al mes anterior")
-                        
-                        # Información de tendencia
-                        st.metric("Tendencia General", tend["tendencia"], f"{tend['valor']:+d} mttos")
-                        
-                        st.markdown("---")
-                        
-                        # Mostrar si también tiene especialidades eliminadas
-                        if site in datos['eliminadas'] and datos['eliminadas'][site]:
-                            st.warning(
-                                f"⚠️ **Nota:** Este sitio también tiene {len(datos['eliminadas'][site])} "
-                                "especialidad(es) eliminada(s). Ver en la sección 'Especialidades Eliminadas'"
-                            )
-                        
-                        st.markdown("---")
-                        
-                        # Tabla de evolución mensual
-                        st.write("**Evolución mensual de mantenimientos totales:**")
-                        evolucion_mensual = site_data[["MES", "TOTAL"]].tail(6)  # Últimos 6 meses
-                        st.dataframe(
-                            evolucion_mensual.style.background_gradient(
-                                subset=['TOTAL'], 
-                                cmap='RdYlGn',
-                                vmin=evolucion_mensual['TOTAL'].min(),
-                                vmax=evolucion_mensual['TOTAL'].max()
-                            ),
-                            use_container_width=True
-                        )
-                        
-                        st.markdown("---")
-                        
-                        # Gráfico de evolución
-                        st.write("**📈 Gráfico de evolución por especialidad:**")
-                        columnas_grafico = [
-                            c for c in site_data.columns 
-                            if c not in [COL_SITE_ID, "MES", "TOTAL"]
-                        ]
-                        df_grafico = site_data.melt(
-                            id_vars=["MES"],
-                            value_vars=columnas_grafico,
-                            var_name="Especialidad",
-                            value_name="Cantidad"
-                        )
-                        st.bar_chart(df_grafico, x="MES", y="Cantidad", color="Especialidad", horizontal=True)
+                                st.bar_chart(df_grafico, x="MES", y="Cantidad", color="Especialidad", horizontal=True)
+                                st.dataframe(tabla_detallada, use_container_width=True)
+                                
             else:
-                st.success(f"No hay sitios con menos mantenimientos en {nombre_tab}")
-
+                st.success(f"No hay sitios de tipo {nombre_tab} con menos mantenimientos el ultimo mes ")
 # === PÁGINA DE DETALLE POR ESPECIALIDAD ===
 def pagina_especialidades():
     st.title("Análisis por Especialidad")
