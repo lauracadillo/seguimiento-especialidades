@@ -443,37 +443,53 @@ def cargar_datos():
     
 # === PÁGINA DE BIENVENIDA ===
 def pagina_bienvenida():
-    # Header principal
-    st.title("Control de Mantenimientos Preventivos")
-    st.markdown("### Plataforma integral para auditoría y seguimiento de mantenimientos preventivos")
+    # Header principal con estilo
+    st.markdown("""
+    <div style="text-align: center; padding: 2rem 0;">
+        <h1 style="font-size: 3rem; margin-bottom: 0.5rem;">Control de Ejecución de especialidades en Mantenimientos Preventivos</h1>
+        <p style="font-size: 1.3rem; color: #666;"></p>
+    </div>
+    """, unsafe_allow_html=True)
     
     datos = st.session_state.datos
     
     if datos is None:
-        st.error("⚠️ No se pudieron cargar los datos. Verifica que el archivo Excel esté disponible.")
+        st.error("No se pudieron cargar los datos. Verifica que el archivo Excel esté disponible.")
         return
     
+    # Sección de botones de navegación principal
     
-    # Alertas destacadas
-    st.subheader("Alertas Críticas")
+    col1, col2 = st.columns(2)
     
-    # Sitios en alto riesgo
-    sitios_alto_riesgo = [s for s, r in datos['riesgos'].items() if "ALTO" in r]
-    if sitios_alto_riesgo:
-        st.error(f"**{len(sitios_alto_riesgo)} sitios en ALTO RIESGO**")
-        with st.expander("Ver sitios"):
-            for site in sitios_alto_riesgo[:10]:  # Mostrar máximo 10
-                site_name_row = datos['prioridad_df'][datos['prioridad_df'][COL_SITE_ID] == site]
-                site_name = site_name_row[COL_SITE].iloc[0] if not site_name_row.empty else site
-                st.write(f"- {site} — {site_name}")
-            if len(sitios_alto_riesgo) > 10:
-                st.write(f"*... y {len(sitios_alto_riesgo) - 10} más*")
-    else:
-        st.success("   No hay sitios en alto riesgo")
-
+    with col1:
+        if st.button("**Búsqueda por Site ID**", 
+                     use_container_width=True,  type="primary", icon=":material/search:"):
+            st.session_state.pagina_actual = "Búsqueda por Site ID"
+            st.rerun()
+        
+        if st.button("**Sitios Problemáticos**", 
+                     use_container_width=True,  type="primary", icon=":material/error:"):
+            st.session_state.pagina_actual = "Sitios Problemáticos"
+            st.rerun()
+        
+        if st.button("**Análisis por Especialidades**", 
+                     use_container_width=True, type="primary", icon=":material/finance_mode:"):
+            st.session_state.pagina_actual = "Especialidades"
+            st.rerun()
+    
+    with col2:
+        if st.button("**Mantenimientos Pendientes**", 
+                     use_container_width=True,  type="primary", icon=":material/pending_actions:"):
+            st.session_state.pagina_actual = "Mantenimientos Pendientes"
+            st.rerun()
+        
+        if st.button("**Desempeño de los FLM** ", 
+                     use_container_width=True,  type="primary", icon=":material/engineering:"):
+            st.session_state.pagina_actual = "Análisis FLM"
+            st.rerun()
     
     
-    # Footer con información del sistema
+    # Footer
     st.markdown("---")
     col_foot1, col_foot2, col_foot3 = st.columns(3)
     
@@ -487,6 +503,7 @@ def pagina_bienvenida():
     with col_foot3:
         st.caption(f" Versión 1.0")
 
+    
 # === PÁGINA DE BÚSQUEDA POR SITE ID ===
 def pagina_busqueda_site():
     st.title("Búsqueda por Site ID")
@@ -1114,17 +1131,30 @@ def main():
     if 'pagina_actual' not in st.session_state:
         st.session_state.pagina_actual = "Inicio"
     
-    # Control de navegación
-    pagina = st.pills(
-        " ",
-        ["Inicio", "Búsqueda por Site ID", "Mantenimientos Pendientes", 
-         "Sitios Problemáticos", "Análisis FLM", "Especialidades"],
-        default=st.session_state.pagina_actual,width="stretch"
-    )
-    
-    # Actualizar página actual
-    if pagina:
-        st.session_state.pagina_actual = pagina
+    # MOSTRAR PILLS SOLO SI NO ESTAMOS EN INICIO
+    if st.session_state.pagina_actual != "Inicio":
+        # Control de navegación con pills
+        pagina = st.pills(
+            " ",
+            ["Volver a Inicio", "Búsqueda por Site ID", "Mantenimientos Pendientes", 
+             "Sitios Problemáticos", "Análisis FLM", "Especialidades"],
+            selection_mode="single",
+            width="stretch"
+        )
+        
+        # Mapear la selección a nombres de página
+        mapeo_paginas = {
+            "Volver a Inicio": "Inicio",
+            "Búsqueda por Site ID": "Búsqueda por Site ID",
+            "Mantenimientos Pendientes": "Mantenimientos Pendientes",
+            "Sitios Problemáticos": "Sitios Problemáticos",
+            "Análisis FLM": "Análisis FLM",
+            "Especialidades": "Especialidades"
+        }
+        
+        # Actualizar página actual si hay selección
+        if pagina:
+            st.session_state.pagina_actual = mapeo_paginas[pagina]
     
     # Navegación entre páginas
     if st.session_state.pagina_actual == "Inicio":
