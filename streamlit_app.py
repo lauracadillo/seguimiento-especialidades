@@ -463,28 +463,28 @@ def pagina_bienvenida():
     
     with col1:
         if st.button("**Búsqueda por Site ID**", 
-                     use_container_width=True,  type="primary", icon=":material/search:"):
+                     width="stretch",  type="primary", icon=":material/search:"):
             st.session_state.pagina_actual = "Búsqueda por Site ID"
             st.rerun()
         
         if st.button("**Sitios Problemáticos**", 
-                     use_container_width=True,  type="primary", icon=":material/error:"):
+                     width="stretch",  type="primary", icon=":material/error:"):
             st.session_state.pagina_actual = "Sitios Problemáticos"
             st.rerun()
         
         if st.button("**Análisis por Especialidades**", 
-                     use_container_width=True, type="primary", icon=":material/finance_mode:"):
+                     width="stretch", type="primary", icon=":material/finance_mode:"):
             st.session_state.pagina_actual = "Especialidades"
             st.rerun()
     
     with col2:
         if st.button("**Mantenimientos Pendientes**", 
-                     use_container_width=True,  type="primary", icon=":material/pending_actions:"):
+                     width="stretch",  type="primary", icon=":material/pending_actions:"):
             st.session_state.pagina_actual = "Mantenimientos Pendientes"
             st.rerun()
         
         if st.button("**Desempeño de los FLM** ", 
-                     use_container_width=True,  type="primary", icon=":material/engineering:"):
+                     width="stretch",  type="primary", icon=":material/engineering:"):
             st.session_state.pagina_actual = "Análisis FLM"
             st.rerun()
     
@@ -1050,7 +1050,7 @@ def mostrar_sitios_con_menos_mantenimientos(datos):
                                     value_name="Cantidad"
                                 )
                                 st.bar_chart(df_grafico, x="MES", y="Cantidad", color="Especialidad", horizontal=True)
-                                st.dataframe(tabla_detallada, use_container_width=True)
+                                st.dataframe(tabla_detallada, width="stretch")
                                 
             else:
                 st.success(f"No hay sitios de tipo {nombre_tab} con menos mantenimientos el ultimo mes ")
