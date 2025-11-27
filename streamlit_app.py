@@ -471,15 +471,9 @@ def pagina_bienvenida():
         st.session_state.uploaded_file = uploaded_file
         st.success("✅ Archivo cargado exitosamente!")
         
-        # Load data
-        with st.spinner("Procesando datos..."):
-            datos = cargar_datos(uploaded_file)
-            if datos is not None:
-                st.session_state.datos = datos
-                st.rerun()
-            else:
-                st.error("Error al procesar el archivo. Verifica el formato.")
-    
+        
+    datos = cargar_datos(uploaded_file)
+           
     # Only show the navigation buttons if data is loaded
     if 'datos' in st.session_state and st.session_state.datos is not None:
         datos = st.session_state.datos
