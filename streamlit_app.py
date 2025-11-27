@@ -446,6 +446,7 @@ def cargar_datos(uploaded_file):
         st.error(f"Error al cargar el archivo: {str(e)}")
         return None
 
+
 # === PÁGINA DE BIENVENIDA ===
 def pagina_bienvenida():
     # Header principal con estilo
@@ -471,13 +472,14 @@ def pagina_bienvenida():
         st.session_state.uploaded_file = uploaded_file
         st.success("✅ Archivo cargado exitosamente!")
         
-        
-    datos = cargar_datos(uploaded_file)
-    if datos is not None:
-        st.session_state.datos = datos
-        st.rerun()
-    else:
-        st.error("Error al procesar el archivo. Verifica el formato.")
+        # Load data
+        with st.spinner("Procesando datos..."):
+            datos = cargar_datos(uploaded_file)
+            if datos is not None:
+                st.session_state.datos = datos
+                st.rerun()
+            else:
+                st.error("Error al procesar el archivo. Verifica el formato.")
     
     # Only show the navigation buttons if data is loaded
     if 'datos' in st.session_state and st.session_state.datos is not None:
@@ -529,7 +531,7 @@ def pagina_bienvenida():
             st.caption(f" Versión 1.0")
     else:
         st.info("👆 Por favor, sube un archivo Excel para comenzar el análisis.")
-
+        
 # === PÁGINA DE BÚSQUEDA POR SITE ID ===
 def pagina_busqueda_site():
     st.title("Búsqueda por Site ID")
