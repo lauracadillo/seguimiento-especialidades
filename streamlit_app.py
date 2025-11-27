@@ -3,13 +3,15 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from pathlib import Path
+
 
 # === CONFIGURACIÓN INICIAL ===
 st.set_page_config(page_title="Control de Mantenimientos", layout="wide")
 
 # agregar la ruta del archivo donde esten los preventivos
 # === CONSTANTES ===
-ARCHIVO = "C:\Users\lcadillom\OneDrive - Integratel Perú\1_Compartido_KPI\1.- Reporte de Mtto Preventivo\V6.Autin -Segu mtto Preventivo (26_ Noviembre 09;19).xlsx"
+ARCHIVO = Path("C:/Users/lcadillom/OneDrive - Integratel Perú/1_Compartido_KPI/1.- Reporte de Mtto Preventivo/V6.Autin -Segu mtto Preventivo (26_ Noviembre 09;19).xlsx")
 HOJA = "Data"
 
 # Nombres de columnas
