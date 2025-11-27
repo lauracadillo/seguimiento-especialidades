@@ -8,7 +8,7 @@ from datetime import datetime
 st.set_page_config(page_title="Control de Mantenimientos", layout="wide")
 
 # === CONSTANTES ===
-ARCHIVO = "libro_31oct.xlsx"
+ARCHIVO = "libro_27nov.xlsx"
 HOJA = "Data"
 
 # Nombres de columnas
