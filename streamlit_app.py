@@ -3,14 +3,12 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from pathlib import Path
-import io
 
 # === CONFIGURACIÓN INICIAL ===
 st.set_page_config(page_title="Control de Mantenimientos", layout="wide")
 
 # === CONSTANTES ===
-# ARCHIVO variable will be set dynamically based on uploaded file
+ARCHIVO = "libro_31oct.xlsx"
 HOJA = "Data"
 
 # Nombres de columnas
@@ -365,88 +363,84 @@ def verificar_pendientes_no_ejecutados(df, col_site_id, col_site, col_especialid
 
 # === CARGA Y PROCESAMIENTO DE DATOS (se ejecuta una sola vez) ===
 @st.cache_data
-def cargar_datos(uploaded_file):
-    """Carga y procesa los datos desde el archivo subido"""
-    try:
-        if uploaded_file is not None:
-            # Leer el archivo subido
-            df = pd.read_excel(uploaded_file, sheet_name=HOJA)
-            df.columns = df.columns.str.strip()
-            
-            # Preparar columna de fecha
-            df[COL_FECHA] = df[COL_FECHA].astype(str).str.strip().str.lower()
-            df["MES"] = df[COL_FECHA].apply(convertir_mes_ano)
-            
-            # Filtrar por estado
-            df_ejecutados = df[df[COL_ESTADO].str.lower() == "ejecutado"]
-            df_cancelados = df[df[COL_ESTADO].str.lower() == "cancelado"]
-            df_pendientes = df[df[COL_ESTADO].str.lower() == "pendiente"]
-            
-            # === CONTEO DE ESPECIALIDADES EJECUTADAS ===
-            conteo_ejecutadas = (
-                df_ejecutados.groupby([COL_SITE_ID, "MES", COL_ESPECIALIDAD])
-                .size()
-                .unstack(fill_value=0)
+def cargar_datos():
+    """Carga y procesa los datos una sola vez"""
+    if ARCHIVO:
+        df = pd.read_excel(ARCHIVO, sheet_name=HOJA)
+        df.columns = df.columns.str.strip()
+        
+        # Preparar columna de fecha
+        df[COL_FECHA] = df[COL_FECHA].astype(str).str.strip().str.lower()
+        df["MES"] = df[COL_FECHA].apply(convertir_mes_ano)
+        
+        # Filtrar por estado
+        df_ejecutados = df[df[COL_ESTADO].str.lower() == "ejecutado"]
+        df_cancelados = df[df[COL_ESTADO].str.lower() == "cancelado"]
+        df_pendientes = df[df[COL_ESTADO].str.lower() == "pendiente"]
+        
+        # === CONTEO DE ESPECIALIDADES EJECUTADAS ===
+      
+
+        conteo_ejecutadas = (
+            df_ejecutados.groupby([COL_SITE_ID, "MES", COL_ESPECIALIDAD])
+            .size()
+            .unstack(fill_value=0)
+        )
+        
+        for especialidad in ESPECIALIDADES:
+            if especialidad not in conteo_ejecutadas.columns:
+                conteo_ejecutadas[especialidad] = 0
+        
+        conteo_ejecutadas = conteo_ejecutadas[ESPECIALIDADES]
+        conteo_ejecutadas["TOTAL"] = conteo_ejecutadas.sum(axis=1)
+        conteo_ejecutadas.reset_index(inplace=True)
+        
+        # === ANÁLISIS ===
+        eliminadas, mantenimientos_perdidos = detectar_especialidades_eliminadas(
+            conteo_ejecutadas, COL_SITE_ID, ESPECIALIDADES
+        )
+        diferencias_mtto = diferencia_mtto_anterior(conteo_ejecutadas, COL_SITE_ID)
+        tendencias = calcular_tendencias(conteo_ejecutadas, COL_SITE_ID)
+        desempeno_contratistas, contratistas_problematicos = analizar_desempeno_contratistas(
+            df, COL_CONTRATISTA, COL_SITE_ID, COL_ESTADO
+        )
+        
+        # Verificar pendientes no ejecutados
+        alertas_pendientes = verificar_pendientes_no_ejecutados(
+            df, COL_SITE_ID, COL_SITE, COL_ESPECIALIDAD, COL_ESTADO, "MES"
+        )
+        
+        # Calcular riesgos
+        prioridad_df = df[[COL_SITE_ID, COL_SITE, COL_PRIORIDAD]].drop_duplicates()
+        riesgos = {}
+        scores = {}
+        for site in df[COL_SITE_ID].unique():
+            riesgo, score = calcular_score_riesgo(
+                site, eliminadas, mantenimientos_perdidos, diferencias_mtto, prioridad_df
             )
-            
-            for especialidad in ESPECIALIDADES:
-                if especialidad not in conteo_ejecutadas.columns:
-                    conteo_ejecutadas[especialidad] = 0
-            
-            conteo_ejecutadas = conteo_ejecutadas[ESPECIALIDADES]
-            conteo_ejecutadas["TOTAL"] = conteo_ejecutadas.sum(axis=1)
-            conteo_ejecutadas.reset_index(inplace=True)
-            
-            # === ANÁLISIS ===
-            eliminadas, mantenimientos_perdidos = detectar_especialidades_eliminadas(
-                conteo_ejecutadas, COL_SITE_ID, ESPECIALIDADES
-            )
-            diferencias_mtto = diferencia_mtto_anterior(conteo_ejecutadas, COL_SITE_ID)
-            tendencias = calcular_tendencias(conteo_ejecutadas, COL_SITE_ID)
-            desempeno_contratistas, contratistas_problematicos = analizar_desempeno_contratistas(
-                df, COL_CONTRATISTA, COL_SITE_ID, COL_ESTADO
-            )
-            
-            # Verificar pendientes no ejecutados
-            alertas_pendientes = verificar_pendientes_no_ejecutados(
-                df, COL_SITE_ID, COL_SITE, COL_ESPECIALIDAD, COL_ESTADO, "MES"
-            )
-            
-            # Calcular riesgos
-            prioridad_df = df[[COL_SITE_ID, COL_SITE, COL_PRIORIDAD]].drop_duplicates()
-            riesgos = {}
-            scores = {}
-            for site in df[COL_SITE_ID].unique():
-                riesgo, score = calcular_score_riesgo(
-                    site, eliminadas, mantenimientos_perdidos, diferencias_mtto, prioridad_df
-                )
-                riesgos[site] = riesgo
-                scores[site] = score
-            
-            return {
-                'df': df,
-                'df_ejecutados': df_ejecutados,
-                'df_cancelados': df_cancelados,
-                'df_pendientes': df_pendientes,
-                'conteo_ejecutadas': conteo_ejecutadas,
-                'eliminadas': eliminadas,
-                'mantenimientos_perdidos': mantenimientos_perdidos,
-                'diferencias_mtto': diferencias_mtto,
-                'tendencias': tendencias,
-                'desempeno_contratistas': desempeno_contratistas,
-                'contratistas_problematicos': contratistas_problematicos,
-                'alertas_pendientes': alertas_pendientes,
-                'prioridad_df': prioridad_df,
-                'riesgos': riesgos,
-                'scores': scores
-            }
-        else:
-            return None
-    except Exception as e:
-        st.error(f"Error al cargar el archivo: {str(e)}")
+            riesgos[site] = riesgo
+            scores[site] = score
+        
+        return {
+            'df': df,
+            'df_ejecutados': df_ejecutados,
+            'df_cancelados': df_cancelados,
+            'df_pendientes': df_pendientes,
+            'conteo_ejecutadas': conteo_ejecutadas,
+            'eliminadas': eliminadas,
+            'mantenimientos_perdidos': mantenimientos_perdidos,
+            'diferencias_mtto': diferencias_mtto,
+            'tendencias': tendencias,
+            'desempeno_contratistas': desempeno_contratistas,
+            'contratistas_problematicos': contratistas_problematicos,
+            'alertas_pendientes': alertas_pendientes,
+            'prioridad_df': prioridad_df,
+            'riesgos': riesgos,
+            'scores': scores
+        }
+    else:
         return None
-
-
+    
 # === PÁGINA DE BIENVENIDA ===
 def pagina_bienvenida():
     # Header principal con estilo
@@ -457,81 +451,59 @@ def pagina_bienvenida():
     </div>
     """, unsafe_allow_html=True)
     
-    # === FILE UPLOADER - ADDED HERE ===
+    datos = st.session_state.datos
+    
+    if datos is None:
+        st.error("No se pudieron cargar los datos. Verifica que el archivo Excel esté disponible.")
+        return
+    
+    # Sección de botones de navegación principal
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("**Búsqueda por Site ID**", 
+                     width="stretch",  type="primary", icon=":material/search:"):
+            st.session_state.pagina_actual = "Búsqueda por Site ID"
+            st.rerun()
+        
+        if st.button("**Sitios Problemáticos**", 
+                     width="stretch",  type="primary", icon=":material/error:"):
+            st.session_state.pagina_actual = "Sitios Problemáticos"
+            st.rerun()
+        
+        if st.button("**Análisis por Especialidades**", 
+                     width="stretch", type="primary", icon=":material/finance_mode:"):
+            st.session_state.pagina_actual = "Especialidades"
+            st.rerun()
+    
+    with col2:
+        if st.button("**Mantenimientos Pendientes**", 
+                     width="stretch",  type="primary", icon=":material/pending_actions:"):
+            st.session_state.pagina_actual = "Mantenimientos Pendientes"
+            st.rerun()
+        
+        if st.button("**Desempeño de los FLM** ", 
+                     width="stretch",  type="primary", icon=":material/engineering:"):
+            st.session_state.pagina_actual = "Análisis FLM"
+            st.rerun()
+    
+    
+    # Footer
     st.markdown("---")
-    st.subheader("📤 Cargar Archivo de Datos")
+    col_foot1, col_foot2, col_foot3 = st.columns(3)
     
-    uploaded_file = st.file_uploader(
-        "Sube tu archivo Excel de mantenimientos preventivos", 
-        type=["xlsx"], 
-        help="El archivo debe contener la hoja 'Data' con los datos de mantenimientos"
-    )
+    with col_foot1:
+        st.caption(f"{len(datos['df'])} registros totales")
     
-    if uploaded_file is not None:
-        # Store the uploaded file in session state
-        st.session_state.uploaded_file = uploaded_file
-        st.success("✅ Archivo cargado exitosamente!")
-        
-        # Load data
-        with st.spinner("Procesando datos..."):
-            datos = cargar_datos(uploaded_file)
-            if datos is not None:
-                st.session_state.datos = datos
-                st.rerun()
-            else:
-                st.error("Error al procesar el archivo. Verifica el formato.")
+    with col_foot2:
+        meses_disponibles = datos['df']['MES'].nunique()
+        st.caption(f" {meses_disponibles} meses de historial")
     
-    # Only show the navigation buttons if data is loaded
-    if 'datos' in st.session_state and st.session_state.datos is not None:
-        datos = st.session_state.datos
-        
-        # Sección de botones de navegación principal
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("**Búsqueda por Site ID**", 
-                         width="stretch",  type="primary", icon=":material/search:"):
-                st.session_state.pagina_actual = "Búsqueda por Site ID"
-                st.rerun()
-            
-            if st.button("**Sitios Problemáticos**", 
-                         width="stretch",  type="primary", icon=":material/error:"):
-                st.session_state.pagina_actual = "Sitios Problemáticos"
-                st.rerun()
-            
-            if st.button("**Análisis por Especialidades**", 
-                         width="stretch", type="primary", icon=":material/finance_mode:"):
-                st.session_state.pagina_actual = "Especialidades"
-                st.rerun()
-        
-        with col2:
-            if st.button("**Mantenimientos Pendientes**", 
-                         width="stretch",  type="primary", icon=":material/pending_actions:"):
-                st.session_state.pagina_actual = "Mantenimientos Pendientes"
-                st.rerun()
-            
-            if st.button("**Desempeño de los FLM** ", 
-                         width="stretch",  type="primary", icon=":material/engineering:"):
-                st.session_state.pagina_actual = "Análisis FLM"
-                st.rerun()
-        
-        
-        # Footer
-        st.markdown("---")
-        col_foot1, col_foot2, col_foot3 = st.columns(3)
-        
-        with col_foot1:
-            st.caption(f"{len(datos['df'])} registros totales")
-        
-        with col_foot2:
-            meses_disponibles = datos['df']['MES'].nunique()
-            st.caption(f" {meses_disponibles} meses de historial")
-        
-        with col_foot3:
-            st.caption(f" Versión 1.0")
-    else:
-        st.info("👆 Por favor, sube un archivo Excel para comenzar el análisis.")
-        
+    with col_foot3:
+        st.caption(f" Versión 1.0")
+
+    
 # === PÁGINA DE BÚSQUEDA POR SITE ID ===
 def pagina_busqueda_site():
     st.title("Búsqueda por Site ID")
@@ -1148,22 +1120,19 @@ def pagina_especialidades():
                 st.write(f"- {sitio}")
         else:
             st.success(f"   No hay sitios con problemas de {especialidad_seleccionada}")
+
 # === CONFIGURACIÓN PRINCIPAL ===
 def main():
-    # Initialize session state variables
+    # Inicializar datos en session_state si no existen
     if 'datos' not in st.session_state:
-        st.session_state.datos = None
+        st.session_state.datos = cargar_datos()
     
+    # Inicializar página actual si no existe
     if 'pagina_actual' not in st.session_state:
         st.session_state.pagina_actual = "Inicio"
     
-    if 'uploaded_file' not in st.session_state:
-        st.session_state.uploaded_file = None
-    
-    # Only show navigation pills if we have data and are not on the home page
-    if (st.session_state.datos is not None and 
-        st.session_state.pagina_actual != "Inicio"):
-        
+    # MOSTRAR PILLS SOLO SI NO ESTAMOS EN INICIO
+    if st.session_state.pagina_actual != "Inicio":
         # Control de navegación con pills
         pagina = st.pills(
             " ",
@@ -1191,45 +1160,15 @@ def main():
     if st.session_state.pagina_actual == "Inicio":
         pagina_bienvenida()
     elif st.session_state.pagina_actual == "Búsqueda por Site ID":
-        if st.session_state.datos is not None:
-            pagina_busqueda_site()
-        else:
-            st.error("No hay datos cargados. Por favor, ve a Inicio y sube un archivo.")
-            if st.button("Volver a Inicio"):
-                st.session_state.pagina_actual = "Inicio"
-                st.rerun()
+        pagina_busqueda_site()
     elif st.session_state.pagina_actual == "Análisis FLM":
-        if st.session_state.datos is not None:
-            pagina_analisis_flm()
-        else:
-            st.error("No hay datos cargados. Por favor, ve a Inicio y sube un archivo.")
-            if st.button("Volver a Inicio"):
-                st.session_state.pagina_actual = "Inicio"
-                st.rerun()
+        pagina_analisis_flm()
     elif st.session_state.pagina_actual == "Sitios Problemáticos":
-        if st.session_state.datos is not None:
-            pagina_sitios_problematicos()
-        else:
-            st.error("No hay datos cargados. Por favor, ve a Inicio y sube un archivo.")
-            if st.button("Volver a Inicio"):
-                st.session_state.pagina_actual = "Inicio"
-                st.rerun()
+        pagina_sitios_problematicos()
     elif st.session_state.pagina_actual == "Especialidades":
-        if st.session_state.datos is not None:
-            pagina_especialidades()
-        else:
-            st.error("No hay datos cargados. Por favor, ve a Inicio y sube un archivo.")
-            if st.button("Volver a Inicio"):
-                st.session_state.pagina_actual = "Inicio"
-                st.rerun()
+        pagina_especialidades()
     elif st.session_state.pagina_actual == "Mantenimientos Pendientes":
-        if st.session_state.datos is not None:
-            pagina_pendientes()
-        else:
-            st.error("No hay datos cargados. Por favor, ve a Inicio y sube un archivo.")
-            if st.button("Volver a Inicio"):
-                st.session_state.pagina_actual = "Inicio"
-                st.rerun()
+        pagina_pendientes()
 
 if __name__ == "__main__":
     main()
