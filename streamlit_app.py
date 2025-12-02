@@ -11,6 +11,9 @@ st.set_page_config(page_title="Control de Mantenimientos", layout="wide")
 ARCHIVO = "libro_27nov.xlsx"
 HOJA = "Data"
 
+ARCHIVO_FRECUENCIAS= "frecuencias_2025.xlsx"
+HOJA_FRECUENCIAS = "Hoja1"
+
 # Nombres de columnas
 COL_ESPECIALIDAD = "SUB_ESPECIALIDAD"
 COL_SITE_ID = "Site Id"
@@ -20,6 +23,17 @@ COL_CONTRATISTA = "Contratista Sitio"
 COL_ESTADO = "ESTADO"
 COL_FECHA = "2_MES_PROGRA"
 COL_FLM_ESPECIFICO = "SUP_FLM_2"
+
+columnas_relevantes = [
+    COL_ESPECIALIDAD,
+    COL_SITE_ID,
+    COL_SITE,
+    COL_PRIORIDAD,
+    COL_CONTRATISTA,
+    COL_ESTADO,
+    COL_FECHA,
+    COL_FLM_ESPECIFICO
+]
 
 ESPECIALIDADES = [
     "AA", "GE-TTA-TK", "IE", "SE-LT", "REC-BB", "TX", "TX-BH",
@@ -40,6 +54,57 @@ def convertir_mes_ano(valor):
         if mes:
             return f"20{anio.strip()}-{mes}"
     return "Fecha desconocida"
+
+
+def obtener_ultimo_mes_valido(df):
+    """
+    Regla:
+    - Para cada sitio, analizar mes por mes.
+    - Un mes es válido si tiene >= 80% de ejecuciones.
+    - Devolver el último mes válido, si no: 'NO 2025'.
+    """
+    df = df.copy()
+    df["MES_DT"] = pd.to_datetime(df["MES"], format="%Y-%m")
+
+    # Agrupar Site – Mes – Estado
+    resumen = (
+        df.groupby([COL_SITE, "MES", "MES_DT"])[COL_ESTADO]
+        .value_counts()
+        .unstack(fill_value=0)
+        .reset_index()
+    )
+
+    # Identificar automáticamente solo las columnas numéricas de estados
+    columnas_estados = [
+        col for col in resumen.columns 
+        if col not in [COL_SITE, "MES", "MES_DT"]
+    ]
+
+    # Asegurar que existan columnas esperadas
+    for estado in ["Ejecutado", "Cancelado", "Pendiente"]:
+        if estado not in columnas_estados:
+            resumen[estado] = 0
+            columnas_estados.append(estado)
+
+    # Calcular total y porcentaje
+    resumen["TOTAL"] = resumen[columnas_estados].sum(axis=1)
+    resumen["EJEC"] = resumen["Ejecutado"]
+    resumen["PORC"] = resumen["EJEC"] / resumen["TOTAL"]
+
+    resultados = []
+
+    for site, data in resumen.groupby(COL_SITE):
+        data = data.sort_values("MES_DT", ascending=False)
+
+        mes_valido = data[data["PORC"] >= 0.65].head(1)
+
+        if mes_valido.empty:
+            resultados.append([site, "NO 2025"])
+        else:
+            resultados.append([site, mes_valido.iloc[0]["MES"]])
+
+    return pd.DataFrame(resultados, columns=[COL_SITE, "ULTIMO_MES_VALIDO"])
+
 
 def calcular_score_riesgo(site, eliminadas, mantenimientos_perdidos, diferencias_mtto, prioridad_df):
     """
@@ -368,15 +433,24 @@ def cargar_datos():
     if ARCHIVO:
         df = pd.read_excel(ARCHIVO, sheet_name=HOJA)
         df.columns = df.columns.str.strip()
-        
+
+        # Filtrar el DataFrame para que solo queden las columnas relevantes para el análisis 
+        df = df[columnas_relevantes]
+
         # Preparar columna de fecha
         df[COL_FECHA] = df[COL_FECHA].astype(str).str.strip().str.lower()
         df["MES"] = df[COL_FECHA].apply(convertir_mes_ano)
+
+        
         
         # Filtrar por estado
         df_ejecutados = df[df[COL_ESTADO].str.lower() == "ejecutado"]
         df_cancelados = df[df[COL_ESTADO].str.lower() == "cancelado"]
         df_pendientes = df[df[COL_ESTADO].str.lower() == "pendiente"]
+
+        #Filtrar por prioridad
+        df_P1 = df[df[COL_PRIORIDAD].str.lower() == "p_1"]
+        
         
         # === CONTEO DE ESPECIALIDADES EJECUTADAS ===
       
@@ -483,11 +557,6 @@ def pagina_bienvenida():
             st.session_state.pagina_actual = "Mantenimientos Pendientes"
             st.rerun()
         
-        if st.button("**Desempeño de los FLM** ", 
-                     width="stretch",  type="primary", icon=":material/engineering:"):
-            st.session_state.pagina_actual = "Análisis FLM"
-            st.rerun()
-    
     
     # Footer
     st.markdown("---")
@@ -757,47 +826,6 @@ def pagina_pendientes():
     else:
         st.success("   No hay mantenimientos pendientes sin ejecutar")
 
-# === PÁGINA DE ANÁLISIS DE FLM ===
-def pagina_analisis_flm():
-    st.title("Análisis de desempeño de los FLM")
-    
-    datos = st.session_state.datos
-    
-    if datos is None:
-        st.info(" Por favor carga un archivo Excel para iniciar el análisis.")
-        return
-    
-    # Mostrar todos los contratistas con detalles expandibles
-    st.subheader("Desempeño General")
-    st.dataframe(
-        datos['desempeno_contratistas'].style.background_gradient(
-            subset=['% Ejecutado'], cmap='RdYlGn', vmin=0, vmax=100
-        ).background_gradient(
-            subset=['% Cancelado'], cmap='RdYlGn_r', vmin=0, vmax=100
-        ),
-        width='content'
-    )
-
-    # Detalle expandible para CADA contratista (no solo los problemáticos)
-    st.subheader("Detalle por FLM")
-    for contratista in datos['desempeno_contratistas'].index:
-        st.subheader(f"{contratista}")
-        # Obtener sitios de este contratista
-        sitios_contratista = datos['df'][datos['df'][COL_CONTRATISTA] == contratista][COL_SITE].unique()
-        
-        # Desglose por estado
-        col_a, col_b, col_c = st.columns(3)
-        datos_contratista = datos['desempeno_contratistas'].loc[contratista]
-        
-        with col_a:
-            st.metric("Ejecutado", f"{datos_contratista.get('Ejecutado', 0):.0f}", 
-                    f"{datos_contratista.get('% Ejecutado', 0):.1f}%", border=True)
-        with col_b:
-            st.metric("Pendiente", f"{datos_contratista.get('Pendiente', 0):.0f}", 
-                    f"{datos_contratista.get('% Pendiente', 0):.1f}%", border=True)
-        with col_c:
-            st.metric("Cancelado", f"{datos_contratista.get('Cancelado', 0):.0f}", 
-                    f"{datos_contratista.get('% Cancelado', 0):.1f}%", delta_color="inverse", border=True)
 
 def pagina_sitios_problematicos():
     st.title("Sitios Problemáticos")
@@ -1054,6 +1082,7 @@ def mostrar_sitios_con_menos_mantenimientos(datos):
                                 
             else:
                 st.success(f"No hay sitios de tipo {nombre_tab} con menos mantenimientos el ultimo mes ")
+
 # === PÁGINA DE DETALLE POR ESPECIALIDAD ===
 def pagina_especialidades():
     st.title("Análisis por Especialidad")
@@ -1105,6 +1134,8 @@ def pagina_especialidades():
             st.line_chart(evolucion)
         else:
             st.info("No hay datos suficientes para mostrar la evolución temporal")
+
+        # TODO: agregar aca la predicción de la cantidad de especialidades que se deberian realizar ese mes vs la cantidad de especialidades realizadas
         
         # Top sitios con problemas en esta especialidad
         st.subheader(f"Sitios con Problemas - {especialidad_seleccionada}")
@@ -1137,7 +1168,7 @@ def main():
         pagina = st.pills(
             " ",
             ["Volver a Inicio", "Búsqueda por Site ID", "Mantenimientos Pendientes", 
-             "Sitios Problemáticos", "Análisis FLM", "Especialidades"],
+             "Sitios Problemáticos",  "Especialidades"],
             selection_mode="single",
             width="stretch"
         )
@@ -1148,7 +1179,6 @@ def main():
             "Búsqueda por Site ID": "Búsqueda por Site ID",
             "Mantenimientos Pendientes": "Mantenimientos Pendientes",
             "Sitios Problemáticos": "Sitios Problemáticos",
-            "Análisis FLM": "Análisis FLM",
             "Especialidades": "Especialidades"
         }
         
@@ -1161,8 +1191,7 @@ def main():
         pagina_bienvenida()
     elif st.session_state.pagina_actual == "Búsqueda por Site ID":
         pagina_busqueda_site()
-    elif st.session_state.pagina_actual == "Análisis FLM":
-        pagina_analisis_flm()
+    
     elif st.session_state.pagina_actual == "Sitios Problemáticos":
         pagina_sitios_problematicos()
     elif st.session_state.pagina_actual == "Especialidades":
