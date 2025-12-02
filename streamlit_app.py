@@ -133,48 +133,6 @@ def calcular_score_riesgo(site, eliminadas, mantenimientos_perdidos, diferencias
     else:
         return "BAJO RIESGO", score
 
-def analizar_desempeno_contratistas(df, col_contratista, col_site_id, col_estado):
-    """
-    Analiza el desempeño de contratistas enfocado en estados de mantenimiento.
-    Retorna métricas detalladas por contratista.
-    """
-    # Agrupar por contratista y estado
-    desempeno = df.groupby([col_contratista, col_estado]).size().unstack(fill_value=0)
-    
-    # Calcular totales y porcentajes
-    desempeno['TOTAL'] = desempeno.sum(axis=1)
-    
-    if 'Ejecutado' in desempeno.columns:
-        desempeno['% Ejecutado'] = (desempeno['Ejecutado'] / desempeno['TOTAL'] * 100).round(1)
-    else:
-        desempeno['% Ejecutado'] = 0
-        
-    if 'Cancelado' in desempeno.columns:
-        desempeno['% Cancelado'] = (desempeno['Cancelado'] / desempeno['TOTAL'] * 100).round(1)
-    else:
-        desempeno['% Cancelado'] = 0
-        
-    if 'Pendiente' in desempeno.columns:
-        desempeno['% Pendiente'] = (desempeno['Pendiente'] / desempeno['TOTAL'] * 100).round(1)
-    else:
-        desempeno['% Pendiente'] = 0
-    
-    # Contar sitios únicos por contratista
-    sitios_por_contratista = df.groupby(col_contratista)[col_site_id].nunique()
-    desempeno['Sitios_Atendidos'] = sitios_por_contratista
-    
-    # Identificar contratistas problemáticos
-    contratistas_problematicos = desempeno[
-        (desempeno['% Cancelado'] > 15) | 
-        (desempeno['% Ejecutado'] < 70)
-    ].copy()
-    
-    # Ordenar columnas para mejor visualización
-    columnas_orden = ['Sitios_Atendidos', 'TOTAL', 'Ejecutado', '% Ejecutado', 
-                     'Pendiente', '% Pendiente', 'Cancelado', '% Cancelado']
-    columnas_disponibles = [col for col in columnas_orden if col in desempeno.columns]
-    
-    return desempeno[columnas_disponibles], contratistas_problematicos
 
 def detectar_especialidades_eliminadas(conteo_df,col_site_id,  especialidades):
     """Detecta especialidades que han sido eliminadas permanentemente (3+ meses consecutivos de caída)"""
@@ -426,6 +384,99 @@ def verificar_pendientes_no_ejecutados(df, col_site_id, col_site, col_especialid
     
     return alertas_pendientes
 
+# === FUNCIÓN DE PREDICCIÓN ===
+def predecir_mantenimientos_especialidad(df, df_frecuencias, especialidad, meses_a_predecir=2):
+    """
+    Predice la cantidad de mantenimientos esperados para una especialidad en los próximos meses.
+    
+    Args:
+        df: DataFrame con los datos de mantenimientos
+        df_frecuencias: DataFrame con las frecuencias anuales por sitio
+        especialidad: Especialidad a predecir
+        meses_a_predecir: Cantidad de meses a predecir (default: 2)
+    
+    Returns:
+        DataFrame con predicciones por mes
+    """
+    # Filtrar solo mantenimientos ejecutados de la especialidad
+    df_esp = df[(df[COL_ESPECIALIDAD] == especialidad) & 
+                (df[COL_ESTADO].str.lower() == "ejecutado")].copy()
+    
+    if df_esp.empty:
+        return pd.DataFrame()
+    
+    # Convertir MES a datetime
+    df_esp["MES_DT"] = pd.to_datetime(df_esp["MES"], format="%Y-%m")
+    
+    # Calcular promedio de mantenimientos por sitio-especialidad
+    promedios_por_sitio = df_esp.groupby(COL_SITE_ID).size().to_dict()
+    conteo_meses_por_sitio = df_esp.groupby(COL_SITE_ID)["MES"].nunique().to_dict()
+    
+    # Calcular promedio real (total mttos / cantidad de meses con datos)
+    promedio_mttos_por_sitio = {
+        site: promedios_por_sitio[site] / conteo_meses_por_sitio.get(site, 1)
+        for site in promedios_por_sitio
+    }
+    
+    # Obtener el último mes con datos
+    ultimo_mes = df_esp["MES_DT"].max()
+    
+    # Preparar diccionario de frecuencias
+    frecuencias_dict = df_frecuencias.set_index(COL_SITE_ID)["Frecuencias"].to_dict() if not df_frecuencias.empty else {}
+    
+    predicciones = []
+    
+    # Para cada mes a predecir
+    for i in range(1, meses_a_predecir + 1):
+        mes_prediccion = ultimo_mes + pd.DateOffset(months=i)
+        mes_str = mes_prediccion.strftime("%Y-%m")
+        
+        total_esperado = 0
+        sitios_con_mtto_esperado = []
+        
+        # Para cada sitio único en los datos
+        for site in df_esp[COL_SITE_ID].unique():
+            # Obtener último mantenimiento del sitio para esta especialidad
+            ultimos_mttos_sitio = df_esp[df_esp[COL_SITE_ID] == site].sort_values("MES_DT")
+            
+            if ultimos_mttos_sitio.empty:
+                continue
+            
+            ultimo_mtto_sitio = ultimos_mttos_sitio["MES_DT"].max()
+            
+            # Obtener frecuencia del sitio (default: 2 si no está en el archivo)
+            frecuencia_anual = frecuencias_dict.get(site, 2)
+            
+            # Calcular meses entre mantenimientos
+            meses_entre_mttos = 12 / frecuencia_anual if frecuencia_anual > 0 else 6
+            
+            # Calcular cuántos meses han pasado desde el último mtto
+            meses_desde_ultimo = (mes_prediccion.year - ultimo_mtto_sitio.year) * 12 + \
+                                (mes_prediccion.month - ultimo_mtto_sitio.month)
+            
+            # Si ya debería tener mantenimiento (±1 mes de tolerancia)
+            if abs(meses_desde_ultimo - meses_entre_mttos) <= 1:
+                promedio_sitio = promedio_mttos_por_sitio.get(site, 1)
+                total_esperado += promedio_sitio
+                sitios_con_mtto_esperado.append({
+                    "site": site,
+                    "ultimo_mtto": ultimo_mtto_sitio.strftime("%Y-%m"),
+                    "meses_transcurridos": meses_desde_ultimo,
+                    "frecuencia_esperada_meses": round(meses_entre_mttos, 1),
+                    "mttos_esperados": round(promedio_sitio, 2)
+                })
+        
+        predicciones.append({
+            "mes": mes_str,
+            "total_esperado": round(total_esperado, 1),
+            "cantidad_sitios": len(sitios_con_mtto_esperado),
+            "detalle_sitios": sitios_con_mtto_esperado
+        })
+    
+    return pd.DataFrame(predicciones)
+
+
+
 # === CARGA Y PROCESAMIENTO DE DATOS (se ejecuta una sola vez) ===
 @st.cache_data
 def cargar_datos():
@@ -433,6 +484,9 @@ def cargar_datos():
     if ARCHIVO:
         df = pd.read_excel(ARCHIVO, sheet_name=HOJA)
         df.columns = df.columns.str.strip()
+
+        df_frecuencias = pd.read_excel(ARCHIVO_FRECUENCIAS, sheet_name=HOJA_FRECUENCIAS)
+        df_frecuencias.columns = df_frecuencias.columns.str.strip()
 
         # Filtrar el DataFrame para que solo queden las columnas relevantes para el análisis 
         df = df[columnas_relevantes]
@@ -475,9 +529,7 @@ def cargar_datos():
         )
         diferencias_mtto = diferencia_mtto_anterior(conteo_ejecutadas, COL_SITE_ID)
         tendencias = calcular_tendencias(conteo_ejecutadas, COL_SITE_ID)
-        desempeno_contratistas, contratistas_problematicos = analizar_desempeno_contratistas(
-            df, COL_CONTRATISTA, COL_SITE_ID, COL_ESTADO
-        )
+        
         
         # Verificar pendientes no ejecutados
         alertas_pendientes = verificar_pendientes_no_ejecutados(
@@ -500,13 +552,12 @@ def cargar_datos():
             'df_ejecutados': df_ejecutados,
             'df_cancelados': df_cancelados,
             'df_pendientes': df_pendientes,
+            'df_frecuencias': df_frecuencias,  # ← ESTA LÍNEA ES NUEVA
             'conteo_ejecutadas': conteo_ejecutadas,
             'eliminadas': eliminadas,
             'mantenimientos_perdidos': mantenimientos_perdidos,
             'diferencias_mtto': diferencias_mtto,
             'tendencias': tendencias,
-            'desempeno_contratistas': desempeno_contratistas,
-            'contratistas_problematicos': contratistas_problematicos,
             'alertas_pendientes': alertas_pendientes,
             'prioridad_df': prioridad_df,
             'riesgos': riesgos,
@@ -1084,6 +1135,7 @@ def mostrar_sitios_con_menos_mantenimientos(datos):
                 st.success(f"No hay sitios de tipo {nombre_tab} con menos mantenimientos el ultimo mes ")
 
 # === PÁGINA DE DETALLE POR ESPECIALIDAD ===
+# === PÁGINA DE DETALLE POR ESPECIALIDAD ===
 def pagina_especialidades():
     st.title("Análisis por Especialidad")
     
@@ -1135,9 +1187,86 @@ def pagina_especialidades():
         else:
             st.info("No hay datos suficientes para mostrar la evolución temporal")
 
-        # TODO: agregar aca la predicción de la cantidad de especialidades que se deberian realizar ese mes vs la cantidad de especialidades realizadas
+        # === PREDICCIÓN DE MANTENIMIENTOS ===
+        st.markdown("---")
+        st.subheader(f"📈 Predicción de Mantenimientos - {especialidad_seleccionada}")
+        
+        # Obtener predicciones
+        predicciones = predecir_mantenimientos_especialidad(
+            datos['df'], 
+            datos['df_frecuencias'], 
+            especialidad_seleccionada,
+            meses_a_predecir=2
+        )
+        
+        if not predicciones.empty:
+            st.write("**Mantenimientos esperados para los próximos meses:**")
+            
+            # Mostrar métricas de predicción
+            cols_pred = st.columns(len(predicciones))
+            
+            for idx, (col, row) in enumerate(zip(cols_pred, predicciones.itertuples())):
+                with col:
+                    st.metric(
+                        label=f"🗓️ {row.mes}",
+                        value=f"{row.total_esperado:.0f} mttos",
+                        delta=f"{row.cantidad_sitios} sitios",
+                        border=True
+                    )
+            
+            # Mostrar detalles de cada mes predicho
+            for idx, row in predicciones.iterrows():
+                with st.expander(f"Ver detalle de {row['mes']} ({row['cantidad_sitios']} sitios programados)"):
+                    if row['detalle_sitios']:
+                        df_detalle = pd.DataFrame(row['detalle_sitios'])
+                        
+                        # Renombrar columnas para mejor visualización
+                        df_detalle = df_detalle.rename(columns={
+                            'site': 'Site ID',
+                            'ultimo_mtto': 'Último Mtto',
+                            'meses_transcurridos': 'Meses Transcurridos',
+                            'frecuencia_esperada_meses': 'Frecuencia (meses)',
+                            'mttos_esperados': 'Mttos Esperados'
+                        })
+                        
+                        st.dataframe(df_detalle, hide_index=True, width="stretch")
+                        
+                        st.caption(f"💡 **Total esperado para {row['mes']}:** {row['total_esperado']:.1f} mantenimientos")
+                    else:
+                        st.info("No hay sitios programados para este mes según las frecuencias")
+            
+            # Comparación histórica vs predicción
+            st.markdown("---")
+            st.subheader("📊 Comparación: Histórico vs Predicción")
+            
+            # Obtener datos históricos del último año
+            df_historico = df_especialidad[
+                df_especialidad[COL_ESTADO].str.lower() == "ejecutado"
+            ].groupby("MES").size().reset_index(name="ejecutados")
+            
+            # Combinar histórico con predicción
+            if not df_historico.empty:
+                df_historico = df_historico.tail(6)  # Últimos 6 meses
+                
+                # Agregar predicciones
+                for _, pred in predicciones.iterrows():
+                    df_historico = pd.concat([
+                        df_historico,
+                        pd.DataFrame([{
+                            "MES": pred['mes'],
+                            "ejecutados": pred['total_esperado']
+                        }])
+                    ], ignore_index=True)
+                
+                # Crear gráfico
+                st.line_chart(df_historico.set_index("MES")["ejecutados"])
+                
+                st.caption("📌 Los últimos puntos de la gráfica corresponden a las predicciones")
+        else:
+            st.warning("No hay suficientes datos para generar predicciones para esta especialidad")
         
         # Top sitios con problemas en esta especialidad
+        st.markdown("---")
         st.subheader(f"Sitios con Problemas - {especialidad_seleccionada}")
         
         sitios_problema = []
