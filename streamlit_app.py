@@ -422,7 +422,7 @@ def predecir_mantenimientos_especialidad(df, df_frecuencias, especialidad, meses
     ultimo_mes = df_esp["MES_DT"].max()
     
     # Preparar diccionario de frecuencias
-    frecuencias_dict = df_frecuencias.set_index(COL_SITE_ID)["Frecuencias"].to_dict() if not df_frecuencias.empty else {}
+    frecuencias_dict = df_frecuencias.set_index(COL_SITE_ID)["frecuencia"].to_dict() if not df_frecuencias.empty else {}
     
     predicciones = []
     
