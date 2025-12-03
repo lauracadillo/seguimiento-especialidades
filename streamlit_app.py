@@ -456,7 +456,7 @@ def predecir_mantenimientos_especialidad(df, df_frecuencias, especialidad, meses
                                 (mes_prediccion.month - ultimo_mtto_sitio.month)
             
             # Si ya debería tener mantenimiento (±1 mes de tolerancia)
-            if abs(meses_desde_ultimo - meses_entre_mttos) <= 1:
+            if meses_desde_ultimo == meses_entre_mttos:
                 promedio_sitio = promedio_mttos_por_sitio.get(site, 1)
                 total_esperado += promedio_sitio
                 sitios_con_mtto_esperado.append({
