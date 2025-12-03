@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import math
 
 # === CONFIGURACIÓN INICIAL ===
 st.set_page_config(page_title="Control de Mantenimientos", layout="wide")
@@ -385,7 +386,7 @@ def verificar_pendientes_no_ejecutados(df, col_site_id, col_site, col_especialid
     return alertas_pendientes
 
 # === FUNCIÓN DE PREDICCIÓN ===
-def predecir_mantenimientos_especialidad(df, df_frecuencias, especialidad, meses_a_predecir=2):
+def predecir_mantenimientos_especialidad(df, df_frecuencias, especialidad, meses_a_predecir=1):
     """
     Predice la cantidad de mantenimientos esperados para una especialidad en los próximos meses.
     
@@ -414,7 +415,7 @@ def predecir_mantenimientos_especialidad(df, df_frecuencias, especialidad, meses
     
     # Calcular promedio real (total mttos / cantidad de meses con datos)
     promedio_mttos_por_sitio = {
-        site: promedios_por_sitio[site] / conteo_meses_por_sitio.get(site, 1)
+        site: math.ceil(promedios_por_sitio[site] / conteo_meses_por_sitio.get(site, 1))
         for site in promedios_por_sitio
     }
     
@@ -444,11 +445,11 @@ def predecir_mantenimientos_especialidad(df, df_frecuencias, especialidad, meses
             
             ultimo_mtto_sitio = ultimos_mttos_sitio["MES_DT"].max()
             
-            # Obtener frecuencia del sitio (default: 2 si no está en el archivo)
-            frecuencia_anual = frecuencias_dict.get(site, 2)
+            # Obtener frecuencia del sitio (default: 0 si no está en el archivo)
+            frecuencia_anual = frecuencias_dict.get(site, 0)
             
             # Calcular meses entre mantenimientos
-            meses_entre_mttos = 12 / frecuencia_anual if frecuencia_anual > 0 else 6
+            meses_entre_mttos = 12 / frecuencia_anual if frecuencia_anual > 0 else 0
             
             # Calcular cuántos meses han pasado desde el último mtto
             meses_desde_ultimo = (mes_prediccion.year - ultimo_mtto_sitio.year) * 12 + \
@@ -495,7 +496,6 @@ def cargar_datos():
         df[COL_FECHA] = df[COL_FECHA].astype(str).str.strip().str.lower()
         df["MES"] = df[COL_FECHA].apply(convertir_mes_ano)
 
-        
         
         # Filtrar por estado
         df_ejecutados = df[df[COL_ESTADO].str.lower() == "ejecutado"]
@@ -1135,7 +1135,6 @@ def mostrar_sitios_con_menos_mantenimientos(datos):
                 st.success(f"No hay sitios de tipo {nombre_tab} con menos mantenimientos el ultimo mes ")
 
 # === PÁGINA DE DETALLE POR ESPECIALIDAD ===
-# === PÁGINA DE DETALLE POR ESPECIALIDAD ===
 def pagina_especialidades():
     st.title("Análisis por Especialidad")
     
@@ -1196,7 +1195,7 @@ def pagina_especialidades():
             datos['df'], 
             datos['df_frecuencias'], 
             especialidad_seleccionada,
-            meses_a_predecir=2
+            meses_a_predecir=1
         )
         
         if not predicciones.empty:
@@ -1225,7 +1224,7 @@ def pagina_especialidades():
                             'site': 'Site ID',
                             'ultimo_mtto': 'Último Mtto',
                             'meses_transcurridos': 'Meses Transcurridos',
-                            'frecuencia_esperada_meses': 'Frecuencia (meses)',
+                            'frecuencia_esperada_meses': 'Cada cuantos meses le toca mtto',
                             'mttos_esperados': 'Mttos Esperados'
                         })
                         
