@@ -9,8 +9,11 @@ import math
 st.set_page_config(page_title="Control de Mantenimientos", layout="wide")
 
 # === CONSTANTES ===
-ARCHIVO = "libro_27nov.xlsx"
+ARCHIVO = "16_diciembre.xlsx"
 HOJA = "Data"
+
+ARCHIVO_ANULACIONES = "Anulaciones.xlsx"
+HOJA_ANULACIONES = "anulaciones"
 
 ARCHIVO_FRECUENCIAS= "frecuencias_2025.xlsx"
 HOJA_FRECUENCIAS = "Hoja1"
@@ -35,6 +38,11 @@ columnas_relevantes = [
     COL_FECHA,
     COL_FLM_ESPECIFICO
 ]
+
+columnas_anulaciones = [
+    "Site Id", "Mes de la anulación", "Especialidad eliminada", "Tipo de anulación", "Justificación", 
+]
+
 
 ESPECIALIDADES = [
     "AA", "GE-TTA-TK", "IE", "SE-LT", "REC-BB", "TX", "TX-BH",
@@ -476,8 +484,6 @@ def predecir_mantenimientos_especialidad(df, df_frecuencias, especialidad, meses
     
     return pd.DataFrame(predicciones)
 
-
-
 # === CARGA Y PROCESAMIENTO DE DATOS (se ejecuta una sola vez) ===
 @st.cache_data
 def cargar_datos():
@@ -489,8 +495,12 @@ def cargar_datos():
         df_frecuencias = pd.read_excel(ARCHIVO_FRECUENCIAS, sheet_name=HOJA_FRECUENCIAS)
         df_frecuencias.columns = df_frecuencias.columns.str.strip()
 
+        df_anulaciones =pd.read_excel(ARCHIVO_ANULACIONES, sheet_name=HOJA_ANULACIONES)
+        df_anulaciones.columns = df_anulaciones.columns.str.strip()
+
         # Filtrar el DataFrame para que solo queden las columnas relevantes para el análisis 
         df = df[columnas_relevantes]
+        df_anulaciones = df_anulaciones[columnas_anulaciones]
 
         # Preparar columna de fecha
         df[COL_FECHA] = df[COL_FECHA].astype(str).str.strip().str.lower()
@@ -587,28 +597,32 @@ def pagina_bienvenida():
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("**Búsqueda por Site ID**", 
-                     width="stretch",  type="primary", icon=":material/search:"):
-            st.session_state.pagina_actual = "Búsqueda por Site ID"
-            st.rerun()
         
         if st.button("**Sitios Problemáticos**", 
                      width="stretch",  type="primary", icon=":material/error:"):
             st.session_state.pagina_actual = "Sitios Problemáticos"
             st.rerun()
-        
+
+        if st.button("**Búsqueda por Site ID**", 
+                     width="stretch",  type="primary", icon=":material/search:"):
+            st.session_state.pagina_actual = "Búsqueda por Site ID"
+            st.rerun()
+    
+    with col2:
         if st.button("**Análisis por Especialidades**", 
                      width="stretch", type="primary", icon=":material/finance_mode:"):
             st.session_state.pagina_actual = "Especialidades"
             st.rerun()
-    
-    with col2:
+
         if st.button("**Mantenimientos Pendientes**", 
                      width="stretch",  type="primary", icon=":material/pending_actions:"):
             st.session_state.pagina_actual = "Mantenimientos Pendientes"
             st.rerun()
         
-    
+    if st.button("**Anulaciones**", 
+                     width="stretch",  type="primary", icon=":material/cancel:"):
+            st.session_state.pagina_actual = "Anulaciones"
+            st.rerun()
     # Footer
     st.markdown("---")
     col_foot1, col_foot2, col_foot3 = st.columns(3)
@@ -699,9 +713,6 @@ def pagina_busqueda_site():
         if score_riesgo >= 10:
             st.markdown("---")
             st.subheader("Evaluación de Riesgo")
-            
-            
-            
             if "ALTO" in riesgo_sitio:
                 st.error(f"**{riesgo_sitio}**")
             elif "MEDIO" in riesgo_sitio:
@@ -754,7 +765,7 @@ def pagina_busqueda_site():
         
         # === EVOLUCIÓN HISTÓRICA ===
         st.markdown("---")
-        st.subheader("📊 Evolución Histórica de Mantenimientos")
+        st.subheader("Evolución Histórica de Mantenimientos")
         
         site_data = datos['conteo_ejecutadas'][datos['conteo_ejecutadas'][COL_SITE_ID] == site_buscado].sort_values("MES")
         
@@ -778,6 +789,57 @@ def pagina_busqueda_site():
                 st.dataframe(site_data[columnas_mostrar], hide_index=True)
         else:
             st.info("No hay datos históricos disponibles para este sitio")
+
+        # === ANULACIONES REGISTRADAS ===
+        try:
+            df_anulaciones_full = pd.read_excel(ARCHIVO_ANULACIONES, sheet_name=HOJA_ANULACIONES)
+            df_anulaciones_full.columns = df_anulaciones_full.columns.str.strip()
+            
+            anulaciones_site = df_anulaciones_full[df_anulaciones_full["Site Id"] == site_buscado]
+            
+            if not anulaciones_site.empty:
+                st.markdown("---")
+                st.subheader("Anulaciones Registradas")
+                
+                # Mostrar resumen
+                col_anul1, col_anul2 = st.columns(2)
+                
+                with col_anul1:
+                    total_anulaciones = len(anulaciones_site)
+                    st.metric("Total de Anulaciones", total_anulaciones, border=True)
+                
+                with col_anul2:
+                    especialidades_anuladas = anulaciones_site["Especialidad eliminada"].nunique()
+                    st.metric("Especialidades Anuladas", especialidades_anuladas, border=True)
+                
+                # Mostrar tabla de anulaciones
+                st.write("**Detalle de las anulaciones:**")
+                
+                # Función para aplicar estilos
+                def aplicar_estilos_anulaciones_site(df):
+                    styles = pd.DataFrame('', index=df.index, columns=df.columns)
+                    
+                    if 'Tipo de anulación' in df.columns:
+                        for idx in df.index:
+                            tipo = df.loc[idx, 'Tipo de anulación']
+                            
+                            if 'Permanente' in str(tipo) or 'permanente' in str(tipo):
+                                styles.loc[idx, 'Tipo de anulación'] = 'background-color: #fee2e2; color: #991b1b; font-weight: bold'
+                            elif 'Temporal' in str(tipo) or 'temporal' in str(tipo):
+                                styles.loc[idx, 'Tipo de anulación'] = 'background-color: #fef3c7; color: #92400e; font-weight: bold'
+                    
+                    return styles
+                
+                styled_anulaciones = anulaciones_site[["Especialidad eliminada", "Tipo de anulación", "Justificación"]].style.apply(
+                    aplicar_estilos_anulaciones_site, axis=None
+                )
+                
+                st.dataframe(styled_anulaciones, hide_index=True, use_container_width=True)
+        
+        except FileNotFoundError:
+            pass  # Si no existe el archivo, simplemente no mostramos la sección
+        except Exception as e:
+            st.warning(f"No se pudieron cargar las anulaciones: {str(e)}")
         
         
         # === ALERTAS DE PENDIENTES ===
@@ -785,7 +847,7 @@ def pagina_busqueda_site():
         
         if alertas_site:
             st.markdown("---")
-            st.subheader("⚠️ Mantenimientos Pendientes sin Ejecutar")
+            st.subheader("Mantenimientos Pendientes sin Ejecutar")
             st.error(f"Este sitio tiene **{len(alertas_site)}** mantenimientos pendientes sin resolver")
             
             df_alertas_site = pd.DataFrame(alertas_site)
@@ -1280,6 +1342,140 @@ def pagina_especialidades():
         else:
             st.success(f"   No hay sitios con problemas de {especialidad_seleccionada}")
 
+# === PÁGINA DE REGISTRO DE LAS ANULACIONES ===
+# === PÁGINA DE REGISTRO DE LAS ANULACIONES ===
+def pagina_anulaciones():
+    st.title("Detalle de las anulaciones reportadas por los FLM")
+    
+    datos = st.session_state.datos
+    
+    if datos is None:
+        st.info("⚠️ Por favor carga un archivo Excel para iniciar el análisis.")
+        return
+    
+    # Cargar el archivo de anulaciones
+    try:
+        df_anulaciones = pd.read_excel(ARCHIVO_ANULACIONES, sheet_name=HOJA_ANULACIONES)
+        df_anulaciones.columns = df_anulaciones.columns.str.strip()
+        df_anulaciones = df_anulaciones[columnas_anulaciones]
+
+        
+        if df_anulaciones.empty:
+            st.warning("No hay registros de anulaciones disponibles")
+            return
+        
+        # Métricas generales
+        st.subheader("Resumen")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            total_anulaciones = len(df_anulaciones)
+            st.metric("Total de Anulaciones", total_anulaciones, border=True)
+        
+        with col2:
+            sitios_afectados = df_anulaciones["Site Id"].nunique()
+            st.metric("Sitios Afectados", sitios_afectados, border=True)
+        
+        with col3:
+            especialidades_anuladas = df_anulaciones["Especialidad eliminada"].nunique()
+            st.metric("Especialidades Anuladas", especialidades_anuladas, border=True)
+        
+        st.markdown("---")
+        
+        # Filtros
+        st.subheader("Filtros")
+        
+        col_filtro1, col_filtro2 = st.columns(2)
+        
+        with col_filtro1:
+            tipo_anulacion_filtro = st.multiselect(
+                "Filtrar por Tipo de Anulación:",
+                options=df_anulaciones["Tipo de anulación"].unique().tolist(),
+                default=df_anulaciones["Tipo de anulación"].unique().tolist()
+            )
+        
+        with col_filtro2:
+            especialidad_filtro = st.multiselect(
+                "Filtrar por Especialidad:",
+                options=df_anulaciones["Especialidad eliminada"].unique().tolist(),
+                default=df_anulaciones["Especialidad eliminada"].unique().tolist()
+            )
+        
+        # Aplicar filtros
+        df_filtrado = df_anulaciones[
+            (df_anulaciones["Tipo de anulación"].isin(tipo_anulacion_filtro)) &
+            (df_anulaciones["Especialidad eliminada"].isin(especialidad_filtro))
+        ]
+        
+        st.markdown("---")
+        
+        # Mostrar tabla completa
+        st.subheader(f"📋 Registro de Anulaciones ({len(df_filtrado)} registros)")
+        
+        # Función para aplicar estilos según tipo de anulación
+        def aplicar_estilos_anulaciones(df):
+            styles = pd.DataFrame('', index=df.index, columns=df.columns)
+            
+            if 'Tipo de anulación' in df.columns:
+                for idx in df.index:
+                    tipo = df.loc[idx, 'Tipo de anulación']
+                    
+                    if 'Permanente' in str(tipo) or 'permanente' in str(tipo):
+                        styles.loc[idx, 'Tipo de anulación'] = 'background-color: #fee2e2; color: #991b1b; font-weight: bold'
+                    elif 'Temporal' in str(tipo) or 'temporal' in str(tipo):
+                        styles.loc[idx, 'Tipo de anulación'] = 'background-color: #fef3c7; color: #92400e; font-weight: bold'
+            
+            return styles
+        
+        # Aplicar estilos
+        styled_anulaciones = df_filtrado.style.apply(aplicar_estilos_anulaciones, axis=None)
+        
+        st.dataframe(styled_anulaciones, hide_index=True, use_container_width=True)
+        
+        # Análisis adicional
+        st.markdown("---")
+        st.subheader("Análisis por Tipo de Anulación")
+        
+        tipos_count = df_filtrado["Tipo de anulación"].value_counts()
+        
+        col_chart1, col_chart2 = st.columns(2)
+        
+        with col_chart1:
+            st.write("**Distribución por Tipo:**")
+            st.bar_chart(tipos_count)
+        
+        with col_chart2:
+            st.write("**Distribución por Especialidad:**")
+            esp_count = df_filtrado["Especialidad eliminada"].value_counts()
+            st.bar_chart(esp_count)
+        
+        # Top sitios con más anulaciones
+        st.markdown("---")
+        st.subheader("Sitios con Más Anulaciones")
+        
+        top_sitios = df_filtrado["Site Id"].value_counts().head(10)
+        
+        if not top_sitios.empty:
+            for site_id, count in top_sitios.items():
+                anulaciones_sitio = df_filtrado[df_filtrado["Site Id"] == site_id]
+                
+                # Obtener nombre del sitio
+                site_name_row = datos['prioridad_df'][datos['prioridad_df'][COL_SITE_ID] == site_id]
+                site_name = site_name_row[COL_SITE].iloc[0] if not site_name_row.empty else site_id
+                
+                with st.expander(f"{site_id} — {site_name} ({count} anulaciones)"):
+                    st.dataframe(
+                        anulaciones_sitio[["Especialidad eliminada", "Tipo de anulación", "Justificación"]], 
+                        hide_index=True,
+                        use_container_width=True
+                    )
+        
+    except FileNotFoundError:
+        st.error(f"❌ No se encontró el archivo: {ARCHIVO_ANULACIONES}")
+    except Exception as e:
+        st.error(f"❌ Error al cargar las anulaciones: {str(e)}")
+
 # === CONFIGURACIÓN PRINCIPAL ===
 def main():
     # Inicializar datos en session_state si no existen
@@ -1295,19 +1491,20 @@ def main():
         # Control de navegación con pills
         pagina = st.pills(
             " ",
-            ["Volver a Inicio", "Búsqueda por Site ID", "Mantenimientos Pendientes", 
-             "Sitios Problemáticos",  "Especialidades"],
+            ["Volver al Inicio", "Búsqueda por Site ID", "Mantenimientos Pendientes", 
+             "Sitios Problemáticos",  "Especialidades", "Anulaciones"],
             selection_mode="single",
             width="stretch"
         )
         
         # Mapear la selección a nombres de página
         mapeo_paginas = {
-            "Volver a Inicio": "Inicio",
+            "Volver al Inicio": "Inicio",
             "Búsqueda por Site ID": "Búsqueda por Site ID",
             "Mantenimientos Pendientes": "Mantenimientos Pendientes",
             "Sitios Problemáticos": "Sitios Problemáticos",
-            "Especialidades": "Especialidades"
+            "Especialidades": "Especialidades",
+            "Anulaciones": "Anulaciones"
         }
         
         # Actualizar página actual si hay selección
@@ -1326,6 +1523,8 @@ def main():
         pagina_especialidades()
     elif st.session_state.pagina_actual == "Mantenimientos Pendientes":
         pagina_pendientes()
+    elif st.session_state.pagina_actual == "Anulaciones":
+        pagina_anulaciones()
 
 if __name__ == "__main__":
     main()
