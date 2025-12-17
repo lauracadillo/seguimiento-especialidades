@@ -1209,7 +1209,101 @@ def mostrar_sitios_con_ejecucion_incompleta(datos):
                             st.bar_chart(df_grafico, x="MES", y="Cantidad", color="Especialidad", horizontal=True)
             else:
                 st.success(f"✅ No hay sitios de tipo {nombre_tab} con ejecución incompleta")
-import pandas as pd
+
+
+def generar_reporte_ejecucion_incompleta(datos):
+    """
+    Genera un reporte detallado en Excel de los sitios con ejecución incompleta,
+    incluyendo las especialidades faltantes, mes de ejecución y FLM asignado.
+    """
+    from datetime import datetime
+    
+    sitios_incompletos = datos.get('sitios_incompletos', {})
+    
+    if not sitios_incompletos:
+        return None
+    
+    mes_actual_str = datetime.now().strftime("%Y-%m")
+    
+    reporte_data = []
+    
+    for site_id, info in sitios_incompletos.items():
+        # Obtener información del sitio
+        site_info = datos['prioridad_df'][datos['prioridad_df'][COL_SITE_ID] == site_id]
+        
+        if site_info.empty:
+            continue
+        
+        site_name = site_info[COL_SITE].iloc[0]
+        site_prioridad = site_info[COL_PRIORIDAD].iloc[0]
+        
+        # Obtener FLM del sitio
+        df_site = datos['df'][datos['df'][COL_SITE_ID] == site_id]
+        flm_sitio = df_site[COL_FLM_ESPECIFICO].iloc[0] if not df_site.empty else "Sin Asignar"
+        
+        # Obtener especialidades ejecutadas este mes
+        df_ejecutados_mes_actual = datos['df_ejecutados'][
+            (datos['df_ejecutados'][COL_SITE_ID] == site_id) &
+            (datos['df_ejecutados']["MES"] == mes_actual_str)
+        ]
+        
+        especialidades_ejecutadas_mes_actual = set(df_ejecutados_mes_actual[COL_ESPECIALIDAD].unique())
+        
+        # Obtener especialidades ejecutadas mes anterior
+        conteo_site = datos['conteo_ejecutadas'][
+            datos['conteo_ejecutadas'][COL_SITE_ID] == site_id
+        ].sort_values("MES")
+        
+        if len(conteo_site) < 2:
+            continue
+        
+        mes_anterior = conteo_site.iloc[-2]
+        
+        # Identificar especialidades faltantes (que se hicieron mes anterior pero no este mes)
+        especialidades_faltantes = []
+        for especialidad in ESPECIALIDADES:
+            if especialidad in conteo_site.columns:
+                cantidad_mes_anterior = mes_anterior[especialidad]
+                cantidad_mes_actual = len(df_ejecutados_mes_actual[
+                    df_ejecutados_mes_actual[COL_ESPECIALIDAD] == especialidad
+                ])
+                
+                if cantidad_mes_anterior > 0 and cantidad_mes_actual < cantidad_mes_anterior:
+                    faltante = cantidad_mes_anterior - cantidad_mes_actual
+                    especialidades_faltantes.append(f"{especialidad} ({faltante})")
+        
+        # Determinar nivel de criticidad
+        if info['porcentaje_completado'] < 50:
+            criticidad = "CRÍTICO"
+        elif info['porcentaje_completado'] < 75:
+            criticidad = "ALERTA"
+        else:
+            criticidad = "MONITOREO"
+        
+        reporte_data.append({
+            "Site ID": site_id,
+            "Site Name": site_name,
+            "Prioridad": site_prioridad,
+            "FLM": flm_sitio,
+            "Mes Analizado": mes_actual_str,
+            "Mttos Mes Anterior": info['mes_anterior_total'],
+            "Mttos Realizados Este Mes": info['mes_actual_realizados'],
+            "Mttos Faltantes": info['faltantes'],
+            "% Completado": f"{info['porcentaje_completado']}%",
+            "Especialidades Faltantes": ", ".join(especialidades_faltantes) if especialidades_faltantes else "Ninguna",
+            "Último Mantenimiento": info['ultimo_mtto_fecha'],
+            "Días Desde Último Mtto": info['dias_desde_ultimo'],
+            "Criticidad": criticidad
+        })
+    
+    df_reporte = pd.DataFrame(reporte_data)
+    
+    # Ordenar por criticidad y luego por porcentaje completado
+    orden_criticidad = {"CRÍTICO": 0, "ALERTA": 1, "MONITOREO": 2}
+    df_reporte['orden'] = df_reporte['Criticidad'].map(orden_criticidad)
+    df_reporte = df_reporte.sort_values(['orden', '% Completado']).drop('orden', axis=1)
+    
+    return df_reporte
 
 def generar_reporte_mantenimientos_perdidos(datos, meses_seleccionados=None):
     """
@@ -1859,71 +1953,156 @@ def pagina_reporte():
     st.title("Reporte para la auditoria ")
     datos = st.session_state.datos
 
-    # Obtener lista de meses disponibles
-    meses_disponibles = sorted(datos['conteo_ejecutadas']['MES'].unique(), reverse=True)
-    # Selector de meses para el reporte
-    st.subheader("📥 Generar Reporte de Mantenimientos Perdidos")
+    # Crear pestañas
+    tab1, tab2 = st.tabs(["📉 Mantenimientos Perdidos", "⚠️ Ejecución Incompleta"])
     
-    # Obtener lista de meses disponibles
-    meses_disponibles = sorted(datos['conteo_ejecutadas']['MES'].unique(), reverse=True)
-    
-    col_mes, col_boton_generar = st.columns([2, 1])
-    
-    with col_mes:
-        # Cambiamos selectbox por multiselect
-        meses_seleccionados = st.multiselect(
-            "Selecciona los meses a analizar:",
-            options=meses_disponibles,
-            default=[meses_disponibles[0]], # Por defecto selecciona el más reciente
-            help="Puedes seleccionar varios meses. El reporte comparará cada mes contra su respectivo promedio histórico."
-        )
-    
-    with col_boton_generar:
-        st.write("") # Espaciadores
-        st.write("") 
-        # El botón ahora procesará la lista completa
-        generar_reporte = st.button("🔄 Generar Reporte", type="secondary")
-    
-    # Generar y mostrar preview del reporte
-    if meses_seleccionados:
-        # La función que modificamos antes ahora recibe la lista
-        df_reporte = generar_reporte_mantenimientos_perdidos(datos, meses_seleccionados)
+    # === PESTAÑA 1: MANTENIMIENTOS PERDIDOS ===
+    with tab1:
+        # Obtener lista de meses disponibles
+        meses_disponibles = sorted(datos['conteo_ejecutadas']['MES'].unique(), reverse=True)
+        # Selector de meses para el reporte
+        st.subheader("📥 Generar Reporte de Mantenimientos Perdidos")
         
-        if not df_reporte.empty:
-            # Mostrar preview
-            st.write(f"**Vista previa del reporte consolidado ({len(df_reporte)} registros encontrados):**")
-            st.dataframe(df_reporte.head(10), hide_index=True, width='stretch')
-            
-            if len(df_reporte) > 10:
-                st.caption(f"📋 Mostrando los primeros 10 registros. Descarga el archivo para ver el análisis de todos los meses seleccionados.")
-            
-            # Preparar descarga en memoria
-            from io import BytesIO
-            buffer = BytesIO()
-            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                df_reporte.to_excel(writer, index=False, sheet_name='Mantenimientos Perdidos')
-            buffer.seek(0)
-            
-            # Nombre del archivo dinámico basado en la cantidad de meses
-            nombre_archivo = f"reporte_mantenimientos_{len(meses_seleccionados)}_meses.xlsx"
-            if len(meses_seleccionados) == 1:
-                nombre_archivo = f"reporte_mantenimientos_perdidos_{meses_seleccionados[0]}.xlsx"
-
-            st.download_button(
-                label=f"📥 Descargar Reporte Completo (Excel)",
-                data=buffer,
-                file_name=nombre_archivo,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary"
+        # Obtener lista de meses disponibles
+        meses_disponibles = sorted(datos['conteo_ejecutadas']['MES'].unique(), reverse=True)
+        
+        col_mes, col_boton_generar = st.columns([2, 1])
+        
+        with col_mes:
+            # Cambiamos selectbox por multiselect
+            meses_seleccionados = st.multiselect(
+                "Selecciona los meses a analizar:",
+                options=meses_disponibles,
+                default=[meses_disponibles[0]], # Por defecto selecciona el más reciente
+                help="Puedes seleccionar varios meses. El reporte comparará cada mes contra su respectivo promedio histórico."
             )
+        
+        with col_boton_generar:
+            st.write("") # Espaciadores
+            st.write("") 
+            # El botón ahora procesará la lista completa
+            generar_reporte = st.button("🔄 Generar Reporte", type="secondary")
+        
+        # Generar y mostrar preview del reporte
+        if meses_seleccionados:
+            # La función que modificamos antes ahora recibe la lista
+            df_reporte = generar_reporte_mantenimientos_perdidos(datos, meses_seleccionados)
             
-            st.caption(f"💡 Se analizaron {len(meses_seleccionados)} meses: {', '.join(meses_seleccionados)}")
+            if not df_reporte.empty:
+                # Mostrar preview
+                st.write(f"**Vista previa del reporte consolidado ({len(df_reporte)} registros encontrados):**")
+                st.dataframe(df_reporte.head(10), hide_index=True, width='stretch')
+                
+                if len(df_reporte) > 10:
+                    st.caption(f"📋 Mostrando los primeros 10 registros. Descarga el archivo para ver el análisis de todos los meses seleccionados.")
+                
+                # Preparar descarga en memoria
+                from io import BytesIO
+                buffer = BytesIO()
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                    df_reporte.to_excel(writer, index=False, sheet_name='Mantenimientos Perdidos')
+                buffer.seek(0)
+                
+                # Nombre del archivo dinámico basado en la cantidad de meses
+                nombre_archivo = f"reporte_mantenimientos_{len(meses_seleccionados)}_meses.xlsx"
+                if len(meses_seleccionados) == 1:
+                    nombre_archivo = f"reporte_mantenimientos_perdidos_{meses_seleccionados[0]}.xlsx"
+
+                st.download_button(
+                    label=f"📥 Descargar Reporte Completo (Excel)",
+                    data=buffer,
+                    file_name=nombre_archivo,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary"
+                )
+                
+                st.caption(f"💡 Se analizaron {len(meses_seleccionados)} meses: {', '.join(meses_seleccionados)}")
+            else:
+                st.success(f"✅ No hay sitios con caídas significativas en los meses seleccionados: {', '.join(meses_seleccionados)}")
+        
+        st.markdown("---")
+    
+    # === PESTAÑA 2: EJECUCIÓN INCOMPLETA ===
+    with tab2:
+        st.subheader("📥 Generar Reporte de Ejecución Incompleta")
+        st.caption("Sitios que ya iniciaron mantenimientos este mes pero no completan la cantidad del mes anterior")
+        
+        sitios_incompletos = datos.get('sitios_incompletos', {})
+        
+        if not sitios_incompletos or len(sitios_incompletos) == 0:
+            st.success("✅ No hay sitios con ejecución incompleta detectados en este momento")
         else:
-            st.success(f"✅ No hay sitios con caídas significativas en los meses seleccionados: {', '.join(meses_seleccionados)}")
-    
-    st.markdown("---")
-    
-    
+            # Generar el reporte
+            df_reporte_incompleto = generar_reporte_ejecucion_incompleta(datos)
+            
+            if df_reporte_incompleto is not None and not df_reporte_incompleto.empty:
+                # Mostrar resumen de criticidad
+                col_critico, col_alerta, col_monitoreo = st.columns(3)
+                
+                with col_critico:
+                    cantidad_critico = len(df_reporte_incompleto[df_reporte_incompleto['Criticidad'] == 'CRÍTICO'])
+                    st.metric("🔴 Críticos", cantidad_critico, border=True)
+                
+                with col_alerta:
+                    cantidad_alerta = len(df_reporte_incompleto[df_reporte_incompleto['Criticidad'] == 'ALERTA'])
+                    st.metric("🟡 Alerta", cantidad_alerta, border=True)
+                
+                with col_monitoreo:
+                    cantidad_monitoreo = len(df_reporte_incompleto[df_reporte_incompleto['Criticidad'] == 'MONITOREO'])
+                    st.metric("🟢 Monitoreo", cantidad_monitoreo, border=True)
+                
+                st.markdown("---")
+                
+                # Vista previa del reporte
+                st.write(f"**Vista previa del reporte ({len(df_reporte_incompleto)} sitios con ejecución incompleta):**")
+                
+                # Aplicar estilos al dataframe
+                def aplicar_estilos_criticidad(df):
+                    styles = pd.DataFrame('', index=df.index, columns=df.columns)
+                    
+                    if 'Criticidad' in df.columns:
+                        for idx in df.index:
+                            criticidad = df.loc[idx, 'Criticidad']
+                            
+                            if criticidad == 'CRÍTICO':
+                                styles.loc[idx, 'Criticidad'] = 'background-color: #fee2e2; color: #991b1b; font-weight: bold'
+                            elif criticidad == 'ALERTA':
+                                styles.loc[idx, 'Criticidad'] = 'background-color: #fef3c7; color: #92400e; font-weight: bold'
+                            else:
+                                styles.loc[idx, 'Criticidad'] = 'background-color: #d1fae5; color: #065f46; font-weight: bold'
+                    
+                    return styles
+                
+                styled_df = df_reporte_incompleto.head(10).style.apply(aplicar_estilos_criticidad, axis=None)
+                st.dataframe(styled_df, hide_index=True, use_container_width=True)
+                
+                if len(df_reporte_incompleto) > 10:
+                    st.caption(f"📋 Mostrando los primeros 10 de {len(df_reporte_incompleto)} sitios. Descarga el archivo completo para ver todos.")
+                
+                # Botón de descarga
+                from io import BytesIO
+                from datetime import datetime
+                
+                buffer = BytesIO()
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                    df_reporte_incompleto.to_excel(writer, index=False, sheet_name='Ejecución Incompleta')
+                
+                buffer.seek(0)
+                
+                fecha_reporte = datetime.now().strftime("%Y-%m-%d")
+                
+                st.download_button(
+                    label="📥 Descargar Reporte Completo de Ejecución Incompleta (Excel)",
+                    data=buffer,
+                    file_name=f"reporte_ejecucion_incompleta_{fecha_reporte}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary",
+                    width='stretch'
+                )
+                
+                st.caption(f"El reporte incluye {len(df_reporte_incompleto)} sitios con detalles de especialidades faltantes, FLM asignado y nivel de criticidad")
+            else:
+                st.info("No se pudo generar el reporte. Verifica que haya datos disponibles.")
 
 # === CONFIGURACIÓN PRINCIPAL ===
 def main():
