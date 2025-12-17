@@ -27,16 +27,12 @@ COL_CONTRATISTA = "Contratista Sitio"
 COL_ESTADO = "ESTADO"
 COL_FECHA = "2_MES_PROGRA"
 COL_FLM_ESPECIFICO = "SUP_FLM_2"
+COL_COMPLETE_TIME = "Complete Time"
 
 columnas_relevantes = [
-    COL_ESPECIALIDAD,
-    COL_SITE_ID,
-    COL_SITE,
-    COL_PRIORIDAD,
-    COL_CONTRATISTA,
-    COL_ESTADO,
-    COL_FECHA,
-    COL_FLM_ESPECIFICO
+    COL_ESPECIALIDAD, COL_SITE_ID, COL_SITE, COL_PRIORIDAD,
+    COL_CONTRATISTA, COL_ESTADO, COL_FECHA, COL_FLM_ESPECIFICO, 
+    COL_COMPLETE_TIME
 ]
 
 columnas_anulaciones = [
@@ -63,7 +59,6 @@ def convertir_mes_ano(valor):
         if mes:
             return f"20{anio.strip()}-{mes}"
     return "Fecha desconocida"
-
 
 def obtener_ultimo_mes_valido(df):
     """
@@ -105,7 +100,7 @@ def obtener_ultimo_mes_valido(df):
     for site, data in resumen.groupby(COL_SITE):
         data = data.sort_values("MES_DT", ascending=False)
 
-        mes_valido = data[data["PORC"] >= 0.65].head(1)
+        mes_valido = data[data["PORC"] >= 0.80].head(1)
 
         if mes_valido.empty:
             resultados.append([site, "NO 2025"])
@@ -268,6 +263,7 @@ def diferencia_mtto_anterior(conteo_df, col_site_id):
         }
     
     return diferencias
+
 
 def verificar_pendientes_no_ejecutados(df, col_site_id, col_site, col_especialidad, col_estado, col_mes):
     """
@@ -607,6 +603,11 @@ def pagina_bienvenida():
                      width="stretch",  type="primary", icon=":material/search:"):
             st.session_state.pagina_actual = "Búsqueda por Site ID"
             st.rerun()
+
+        if st.button("**Generar Reporte**", 
+                     width="stretch",  type="primary", icon=":material/download:"):
+            st.session_state.pagina_actual = "Generar Reporte"
+            st.rerun()
     
     with col2:
         if st.button("**Análisis por Especialidades**", 
@@ -619,10 +620,12 @@ def pagina_bienvenida():
             st.session_state.pagina_actual = "Mantenimientos Pendientes"
             st.rerun()
         
-    if st.button("**Anulaciones**", 
-                     width="stretch",  type="primary", icon=":material/cancel:"):
-            st.session_state.pagina_actual = "Anulaciones"
-            st.rerun()
+        if st.button("**Anulaciones**", 
+                        width="stretch",  type="primary", icon=":material/cancel:"):
+                st.session_state.pagina_actual = "Anulaciones"
+                st.rerun()
+
+
     # Footer
     st.markdown("---")
     col_foot1, col_foot2, col_foot3 = st.columns(3)
@@ -971,12 +974,115 @@ def pagina_sitios_problematicos():
     else:
         mostrar_sitios_con_menos_mantenimientos(datos)
 
+import pandas as pd
+
+def generar_reporte_mantenimientos_perdidos(datos, meses_seleccionados=None):
+    """
+    Genera un DataFrame con los mantenimientos perdidos por sitio y especialidad.
+    Analiza una lista de meses específicos vs su promedio histórico.
+    
+    Args:
+        datos: Diccionario con los datos procesados
+        meses_seleccionados: Lista de meses en formato ["YYYY-MM", ...] o un solo string.
+                             Si es None, usa el último mes disponible.
+    """
+    # 1. Normalizar la entrada a una lista de meses
+    if meses_seleccionados is None:
+        meses_seleccionados = [datos['conteo_ejecutadas']['MES'].max()]
+    elif isinstance(meses_seleccionados, str):
+        meses_seleccionados = [meses_seleccionados]
+    
+    reporte_acumulado = []
+    
+    # 2. Iterar por cada mes en la lista
+    for mes_actual in meses_seleccionados:
+        
+        for site in datos['conteo_ejecutadas'][COL_SITE_ID].unique():
+            site_data = datos['conteo_ejecutadas'][
+                datos['conteo_ejecutadas'][COL_SITE_ID] == site
+            ].sort_values("MES")
+            
+            # Verificar si el sitio tiene datos para el mes en evaluación
+            if mes_actual not in site_data['MES'].values:
+                continue
+            
+            # Obtener datos hasta el mes evaluado (inclusive) para calcular el histórico
+            site_data_hasta_mes = site_data[site_data['MES'] <= mes_actual]
+            
+            if len(site_data_hasta_mes) < 2:
+                continue
+            
+            mantenimientos_perdidos_texto = []
+            tiene_caida = False
+            
+            # Evaluación por especialidad
+            for especialidad in ESPECIALIDADES:
+                if especialidad not in site_data_hasta_mes.columns:
+                    continue
+                
+                serie = site_data_hasta_mes[especialidad].fillna(0).astype(int)
+                
+                # Promedio histórico (excluyendo el mes actual de la iteración)
+                # Tomamos todos los registros previos al último en 'site_data_hasta_mes'
+                promedio_historico = serie.iloc[:-1].mean()
+                valor_mes_actual = serie.iloc[-1]
+                
+                diferencia = valor_mes_actual - promedio_historico
+                
+                if diferencia < -0.5:
+                    tiene_caida = True
+                    diferencia_redondeada = int(round(diferencia))
+                    mantenimientos_perdidos_texto.append(f"{diferencia_redondeada} mtto {especialidad}")
+            
+            # 3. Agregar al reporte si se detectó caída en ese mes
+            if tiene_caida and mantenimientos_perdidos_texto:
+                
+                site_info = datos['prioridad_df'][datos['prioridad_df'][COL_SITE_ID] == site]
+                
+                # Extraer Site Name y FLM
+                site_name = site_info[COL_SITE].iloc[0] if not site_info.empty else "N/A"
+                # Cambia 'FLM' por el nombre exacto de la columna en tu archivo (ej. 'Vendor' o 'Responsable')
+                flm_name = site_info['FLM'].iloc[0] if 'FLM' in site_info.columns and not site_info.empty else "Sin Asignar"
+                
+                total_actual = site_data.iloc[-1]['TOTAL']
+                promedio_total_h = site_data.iloc[:-1]['TOTAL'].mean()
+                
+                reporte_acumulado.append({
+                    "Mes Analizado": mes_actual,
+                    "Site Id": site,
+                    "Site Name": site_name,
+                    "FLM": COL_FLM_ESPECIFICO,  # <--- Nueva Columna
+                    "Mantenimientos Perdidos": ", ".join(mantenimientos_perdidos_texto),
+                    "Total Mes": int(total_actual),
+                    "Promedio Histórico": round(promedio_total_h, 1),
+                    "Diferencia": round(total_actual - promedio_total_h, 1)
+                })
+    
+    # 4. Consolidar y ordenar
+    df_reporte = pd.DataFrame(reporte_acumulado)
+    if not df_reporte.empty:
+        # Ordenamos por mes (asc) y luego por la caída más fuerte (asc)
+        df_reporte = df_reporte.sort_values('Mes Analizado', ascending=True)
+    
+    return df_reporte
+
 
 def mostrar_sitios_con_especialidades_eliminadas(datos):
     """Muestra sitios que tienen especialidades eliminadas (3+ meses consecutivos sin hacerse)"""
     
     st.header("Sitios con Especialidades Eliminadas")
     st.caption("Se consideran eliminadas las especialidades que no se ejecutaron durante 3 o más meses consecutivos respecto a su máximo histórico")
+    
+
+    st.markdown("---")
+    
+    # Cargar anulaciones
+    try:
+        df_anulaciones_full = pd.read_excel(ARCHIVO_ANULACIONES, sheet_name=HOJA_ANULACIONES)
+        df_anulaciones_full.columns = df_anulaciones_full.columns.str.strip()
+        tiene_anulaciones = True
+    except:
+        tiene_anulaciones = False
 
     grupos_prioridades = {
         "P1": "P_1", "P2": "P_2", "P3": "P_3",
@@ -1059,6 +1165,19 @@ def mostrar_sitios_con_especialidades_eliminadas(datos):
                                     perdidos = max_hist - actual
                                     st.write(f"- **{esp}**: {perdidos} mttos perdidos (máx histórico: {max_hist}, actual: {actual})")
                                 
+                                # Verificar si hay anulaciones registradas
+                                if tiene_anulaciones:
+                                    anulaciones_sitio = df_anulaciones_full[df_anulaciones_full["Site Id"] == site]
+                                    
+                                    if not anulaciones_sitio.empty:
+                                        st.markdown("---")
+                                        st.write("**📋 Anulaciones registradas para este sitio:**")
+                                        
+                                        for _, anulacion in anulaciones_sitio.iterrows():
+                                            tipo_color = "🔴" if "Permanente" in str(anulacion["Tipo de anulación"]) else "🟡"
+                                            st.write(f"{tipo_color} **{anulacion['Especialidad eliminada']}** — {anulacion['Tipo de anulación']}")
+                                            st.caption(f"Justificación: {anulacion['Justificación']}")
+                                
                                 st.markdown("---")
                                 
                                 # Gráfico de evolución
@@ -1077,12 +1196,77 @@ def mostrar_sitios_con_especialidades_eliminadas(datos):
             else:
                 st.success(f"No hay sitios de tipo {nombre_tab} con especialidades eliminadas")
 
+
 def mostrar_sitios_con_menos_mantenimientos(datos):
     """Muestra sitios que tienen menos mantenimientos en comparación al mes anterior"""
     
     st.header("Sitios con Menos Mantenimientos vs Mes Anterior")
-    st.caption("Se muestran sitios donde el total de mantenimientos realizados disminuyó respecto al mes inmediato anterior")
+    st.caption("Se muestran sitios donde el total de mantenimientos realizados disminuyó respecto al promedio histórico")
     
+    # Selector de mes para el reporte
+    st.subheader("📥 Generar Reporte de Mantenimientos Perdidos")
+    
+    # Obtener lista de meses disponibles
+    meses_disponibles = sorted(datos['conteo_ejecutadas']['MES'].unique(), reverse=True)
+    
+    col_mes, col_boton_generar = st.columns([2, 1])
+    
+    with col_mes:
+        mes_seleccionado = st.selectbox(
+            "Selecciona el mes a analizar:",
+            options=meses_disponibles,
+            index=0,  # Por defecto, el mes más reciente
+            help="El reporte comparará este mes vs el promedio de los meses anteriores"
+        )
+    
+    with col_boton_generar:
+        st.write("")  # Espaciador para alinear verticalmente
+        st.write("")  # Espaciador para alinear verticalmente
+        generar_reporte = st.button("🔄 Generar Reporte", type="secondary")
+    
+    # Generar y mostrar preview del reporte
+    if mes_seleccionado:
+        df_reporte = generar_reporte_mantenimientos_perdidos(datos, mes_seleccionado)
+        
+        if not df_reporte.empty:
+            # Mostrar preview
+            st.write(f"**Vista previa del reporte ({len(df_reporte)} sitios encontrados):**")
+            st.dataframe(df_reporte.head(10), hide_index=True, use_container_width=True)
+            
+            if len(df_reporte) > 10:
+                st.caption(f"📋 Mostrando los primeros 10 de {len(df_reporte)} sitios. Descarga el archivo completo para ver todos.")
+            
+            # Botón de descarga
+            from io import BytesIO
+            
+            buffer = BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df_reporte.to_excel(writer, index=False, sheet_name='Mantenimientos Perdidos')
+            
+            buffer.seek(0)
+            
+            st.download_button(
+                label=f"📥 Descargar Reporte Completo - {mes_seleccionado}",
+                data=buffer,
+                file_name=f"reporte_mantenimientos_perdidos_{mes_seleccionado}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary"
+            )
+            
+            st.caption(f"💡 El reporte contiene {len(df_reporte)} sitios con menos mantenimientos en {mes_seleccionado} vs su promedio histórico")
+        else:
+            st.success(f"✅ No hay sitios con caídas significativas en {mes_seleccionado}")
+    
+    st.markdown("---")
+    
+    # Cargar anulaciones
+    try:
+        df_anulaciones_full = pd.read_excel(ARCHIVO_ANULACIONES, sheet_name=HOJA_ANULACIONES)
+        df_anulaciones_full.columns = df_anulaciones_full.columns.str.strip()
+        tiene_anulaciones = True
+    except:
+        tiene_anulaciones = False
+
     grupos_prioridades = {
         "P1": "P_1", "P2": "P_2", "P3": "P_3",
         "D1": "D_1", "D2": "D_2", "D3": "D_3",
@@ -1107,7 +1291,7 @@ def mostrar_sitios_con_menos_mantenimientos(datos):
             if sitios_con_alerta:
                 st.write(f"**⚠️ {len(sitios_con_alerta)} sitios con menos mantenimientos en {nombre_tab}**")
                 
-                # Agrupar sitios por nivel de riesgo (igual que en la función anterior)
+                # Agrupar sitios por nivel de riesgo
                 sitios_por_riesgo = {
                     "ALTO RIESGO": [],
                     "MEDIO RIESGO": [],
@@ -1174,7 +1358,20 @@ def mostrar_sitios_con_menos_mantenimientos(datos):
                                             f"{delta_valor:+d}",
                                             delta=f"{delta_valor:+d} mttos"
                                         )
+                                
+                                # Verificar si hay anulaciones registradas
+                                if tiene_anulaciones:
+                                    anulaciones_sitio = df_anulaciones_full[df_anulaciones_full["Site Id"] == site]
                                     
+                                    if not anulaciones_sitio.empty:
+                                        st.markdown("---")
+                                        st.write("**📋 Anulaciones registradas para este sitio:**")
+                                        
+                                        for _, anulacion in anulaciones_sitio.iterrows():
+                                            tipo_color = "🔴" if "Permanente" in str(anulacion["Tipo de anulación"]) else "🟡"
+                                            st.write(f"{tipo_color} **{anulacion['Especialidad eliminada']}** — {anulacion['Tipo de anulación']}")
+                                            st.caption(f"Justificación: {anulacion['Justificación']}")
+                                
                                 # Mostrar también la tabla detallada
                                 columnas_grafico = [
                                     c for c in site_data.columns 
@@ -1183,6 +1380,7 @@ def mostrar_sitios_con_menos_mantenimientos(datos):
                                 
                                 tabla_detallada = site_data[["MES"] + columnas_grafico].set_index("MES")
                                 
+                                st.markdown("---")
                                 st.write("**Visualización gráfica:**")
                                 df_grafico = site_data.melt(
                                     id_vars=["MES"],
@@ -1343,7 +1541,6 @@ def pagina_especialidades():
             st.success(f"   No hay sitios con problemas de {especialidad_seleccionada}")
 
 # === PÁGINA DE REGISTRO DE LAS ANULACIONES ===
-# === PÁGINA DE REGISTRO DE LAS ANULACIONES ===
 def pagina_anulaciones():
     st.title("Detalle de las anulaciones reportadas por los FLM")
     
@@ -1476,6 +1673,77 @@ def pagina_anulaciones():
     except Exception as e:
         st.error(f"❌ Error al cargar las anulaciones: {str(e)}")
 
+# === PÁGINA DE REGISTRO DE LAS ANULACIONES ===
+def pagina_reporte():
+    st.title("Reporte para la auditoria ")
+    datos = st.session_state.datos
+
+    # Obtener lista de meses disponibles
+    meses_disponibles = sorted(datos['conteo_ejecutadas']['MES'].unique(), reverse=True)
+    # Selector de meses para el reporte
+    st.subheader("📥 Generar Reporte de Mantenimientos Perdidos")
+    
+    # Obtener lista de meses disponibles
+    meses_disponibles = sorted(datos['conteo_ejecutadas']['MES'].unique(), reverse=True)
+    
+    col_mes, col_boton_generar = st.columns([2, 1])
+    
+    with col_mes:
+        # Cambiamos selectbox por multiselect
+        meses_seleccionados = st.multiselect(
+            "Selecciona los meses a analizar:",
+            options=meses_disponibles,
+            default=[meses_disponibles[0]], # Por defecto selecciona el más reciente
+            help="Puedes seleccionar varios meses. El reporte comparará cada mes contra su respectivo promedio histórico."
+        )
+    
+    with col_boton_generar:
+        st.write("") # Espaciadores
+        st.write("") 
+        # El botón ahora procesará la lista completa
+        generar_reporte = st.button("🔄 Generar Reporte", type="secondary")
+    
+    # Generar y mostrar preview del reporte
+    if meses_seleccionados:
+        # La función que modificamos antes ahora recibe la lista
+        df_reporte = generar_reporte_mantenimientos_perdidos(datos, meses_seleccionados)
+        
+        if not df_reporte.empty:
+            # Mostrar preview
+            st.write(f"**Vista previa del reporte consolidado ({len(df_reporte)} registros encontrados):**")
+            st.dataframe(df_reporte.head(10), hide_index=True, use_container_width=True)
+            
+            if len(df_reporte) > 10:
+                st.caption(f"📋 Mostrando los primeros 10 registros. Descarga el archivo para ver el análisis de todos los meses seleccionados.")
+            
+            # Preparar descarga en memoria
+            from io import BytesIO
+            buffer = BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df_reporte.to_excel(writer, index=False, sheet_name='Mantenimientos Perdidos')
+            buffer.seek(0)
+            
+            # Nombre del archivo dinámico basado en la cantidad de meses
+            nombre_archivo = f"reporte_mantenimientos_{len(meses_seleccionados)}_meses.xlsx"
+            if len(meses_seleccionados) == 1:
+                nombre_archivo = f"reporte_mantenimientos_perdidos_{meses_seleccionados[0]}.xlsx"
+
+            st.download_button(
+                label=f"📥 Descargar Reporte Completo (Excel)",
+                data=buffer,
+                file_name=nombre_archivo,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary"
+            )
+            
+            st.caption(f"💡 Se analizaron {len(meses_seleccionados)} meses: {', '.join(meses_seleccionados)}")
+        else:
+            st.success(f"✅ No hay sitios con caídas significativas en los meses seleccionados: {', '.join(meses_seleccionados)}")
+    
+    st.markdown("---")
+    
+    
+
 # === CONFIGURACIÓN PRINCIPAL ===
 def main():
     # Inicializar datos en session_state si no existen
@@ -1492,7 +1760,7 @@ def main():
         pagina = st.pills(
             " ",
             ["Volver al Inicio", "Búsqueda por Site ID", "Mantenimientos Pendientes", 
-             "Sitios Problemáticos",  "Especialidades", "Anulaciones"],
+             "Sitios Problemáticos",  "Especialidades", "Anulaciones", "Generar Reporte"],
             selection_mode="single",
             width="stretch"
         )
@@ -1504,7 +1772,8 @@ def main():
             "Mantenimientos Pendientes": "Mantenimientos Pendientes",
             "Sitios Problemáticos": "Sitios Problemáticos",
             "Especialidades": "Especialidades",
-            "Anulaciones": "Anulaciones"
+            "Anulaciones": "Anulaciones", 
+            "Generar Reporte": "Generar Reporte"
         }
         
         # Actualizar página actual si hay selección
@@ -1525,6 +1794,8 @@ def main():
         pagina_pendientes()
     elif st.session_state.pagina_actual == "Anulaciones":
         pagina_anulaciones()
+    elif st.session_state.pagina_actual == "Generar Reporte":
+        pagina_reporte()
 
 if __name__ == "__main__":
     main()
