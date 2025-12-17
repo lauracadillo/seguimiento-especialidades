@@ -230,7 +230,6 @@ def calcular_tendencias(conteo_df, col_site_id):
         }
     
     return tendencias
-
 def diferencia_mtto_anterior(conteo_df, col_site_id):
     """
     Analiza la diferencia de mantenimientos con respecto al mes anterior.
@@ -264,6 +263,87 @@ def diferencia_mtto_anterior(conteo_df, col_site_id):
     
     return diferencias
 
+def detectar_sitios_con_ejecucion_incompleta(df, conteo_df, col_site_id):
+    """
+    Detecta sitios que:
+    1. Ya tuvieron al menos un mantenimiento ejecutado este mes
+    2. El último mantenimiento fue hace más de 2 días
+    3. Aún no completan la cantidad de mantenimientos del mes anterior
+    
+    Returns:
+        dict: Diccionario con información de sitios con ejecución incompleta
+    """
+    from datetime import datetime, timedelta
+    
+    # Obtener el mes actual en formato YYYY-MM
+    fecha_actual = datetime.now()
+    mes_actual_str = fecha_actual.strftime("%Y-%m")
+    
+    sitios_incompletos = {}
+    
+    # Filtrar solo mantenimientos ejecutados
+    df_ejecutados = df[df[COL_ESTADO].str.lower() == "ejecutado"].copy()
+    
+    # Convertir Complete Time a datetime
+    df_ejecutados[COL_COMPLETE_TIME] = pd.to_datetime(
+        df_ejecutados[COL_COMPLETE_TIME], 
+        errors='coerce'
+    )
+    
+    for site in conteo_df[col_site_id].unique():
+        site_data = conteo_df[conteo_df[col_site_id] == site].sort_values("MES")
+        
+        # Verificar que tenga al menos 2 meses de historial
+        if len(site_data) < 2:
+            continue
+        
+        # Obtener datos del mes anterior
+        mes_anterior_total = site_data.iloc[-2]["TOTAL"]
+        
+        # Filtrar mantenimientos del sitio en el mes actual
+        mttos_mes_actual = df_ejecutados[
+            (df_ejecutados[col_site_id] == site) &
+            (df_ejecutados["MES"] == mes_actual_str)
+        ]
+        
+        if mttos_mes_actual.empty:
+            continue
+        
+        # Obtener el último mantenimiento ejecutado
+        ultimo_mtto = mttos_mes_actual[COL_COMPLETE_TIME].max()
+        
+        # Verificar si es válido
+        if pd.isna(ultimo_mtto):
+            continue
+        
+        # Calcular días desde el último mantenimiento
+        dias_desde_ultimo = (fecha_actual - ultimo_mtto).days
+        
+        # Cantidad de mantenimientos ejecutados este mes
+        mttos_realizados_mes_actual = len(mttos_mes_actual)
+        
+        # Criterios:
+        # 1. Tiene al menos 1 mantenimiento este mes
+        # 2. Último mtto hace más de 2 días
+        # 3. No alcanza la cantidad del mes anterior
+        if (mttos_realizados_mes_actual > 0 and 
+            dias_desde_ultimo > 2 and 
+            mttos_realizados_mes_actual < mes_anterior_total):
+            
+            faltantes = mes_anterior_total - mttos_realizados_mes_actual
+            
+            sitios_incompletos[site] = {
+                "mes_anterior_total": mes_anterior_total,
+                "mes_actual_realizados": mttos_realizados_mes_actual,
+                "faltantes": faltantes,
+                "ultimo_mtto_fecha": ultimo_mtto.strftime("%Y-%m-%d"),
+                "dias_desde_ultimo": dias_desde_ultimo,
+                "porcentaje_completado": round(
+                    (mttos_realizados_mes_actual / mes_anterior_total) * 100, 1
+                )
+            }
+    
+    return sitios_incompletos
 
 def verificar_pendientes_no_ejecutados(df, col_site_id, col_site, col_especialidad, col_estado, col_mes):
     """
@@ -535,7 +615,7 @@ def cargar_datos():
         )
         diferencias_mtto = diferencia_mtto_anterior(conteo_ejecutadas, COL_SITE_ID)
         tendencias = calcular_tendencias(conteo_ejecutadas, COL_SITE_ID)
-        
+        sitios_incompletos = detectar_sitios_con_ejecucion_incompleta(df, conteo_ejecutadas, COL_SITE_ID)  
         
         # Verificar pendientes no ejecutados
         alertas_pendientes = verificar_pendientes_no_ejecutados(
@@ -564,6 +644,7 @@ def cargar_datos():
             'mantenimientos_perdidos': mantenimientos_perdidos,
             'diferencias_mtto': diferencias_mtto,
             'tendencias': tendencias,
+            'sitios_incompletos': sitios_incompletos,
             'alertas_pendientes': alertas_pendientes,
             'prioridad_df': prioridad_df,
             'riesgos': riesgos,
@@ -837,7 +918,7 @@ def pagina_busqueda_site():
                     aplicar_estilos_anulaciones_site, axis=None
                 )
                 
-                st.dataframe(styled_anulaciones, hide_index=True, use_container_width=True)
+                st.dataframe(styled_anulaciones, hide_index=True, width='stretch')
         
         except FileNotFoundError:
             pass  # Si no existe el archivo, simplemente no mostramos la sección
@@ -952,7 +1033,7 @@ def pagina_sitios_problematicos():
         st.info(" Por favor carga un archivo Excel para iniciar el análisis.")
         return
     
-    col_btn1, col_btn2 = st.columns(2)
+    col_btn1, col_btn2, col_btn3 = st.columns(3)
     
     with col_btn1:
         if st.button("Especialidades Eliminadas", width="stretch", type="primary"):
@@ -961,6 +1042,10 @@ def pagina_sitios_problematicos():
     with col_btn2:
         if st.button("Menos Mantenimientos vs Mes Anterior", width="stretch" , type="primary"):
             st.session_state.tipo_problema = "decreciendo"
+    
+    with col_btn3:
+        if st.button("Ejecución Incompleta Este Mes", width="stretch", type="primary"):
+            st.session_state.tipo_problema = "incompletos"
     
     # Inicializar tipo de problema si no existe
     if 'tipo_problema' not in st.session_state:
@@ -971,9 +1056,159 @@ def pagina_sitios_problematicos():
     
     if tipo_seleccionado == "eliminadas":
         mostrar_sitios_con_especialidades_eliminadas(datos)
+    elif tipo_seleccionado == "incompletos":
+        mostrar_sitios_con_ejecucion_incompleta(datos)
     else:
         mostrar_sitios_con_menos_mantenimientos(datos)
 
+
+def mostrar_sitios_con_ejecucion_incompleta(datos):
+    """Muestra sitios que iniciaron mantenimientos este mes pero no completan la cantidad del mes anterior"""
+    
+    st.header("Sitios con Ejecución Incompleta Este Mes")
+    st.caption("Sitios que ya ejecutaron al menos un mantenimiento hace más de 2 días, pero aún no alcanzan la cantidad del mes anterior")
+    
+    sitios_incompletos = datos.get('sitios_incompletos', {})
+    
+    if not sitios_incompletos:
+        st.success("✅ No hay sitios con ejecución incompleta detectados")
+        return
+    
+    st.markdown("---")
+    
+    # Cargar anulaciones
+    try:
+        df_anulaciones_full = pd.read_excel(ARCHIVO_ANULACIONES, sheet_name=HOJA_ANULACIONES)
+        df_anulaciones_full.columns = df_anulaciones_full.columns.str.strip()
+        tiene_anulaciones = True
+    except:
+        tiene_anulaciones = False
+
+    grupos_prioridades = {
+        "P1": "P_1", "P2": "P_2", "P3": "P_3",
+        "D1": "D_1", "D2": "D_2", "D3": "D_3",
+        "B1": "B_1", "B2": "B_2", "B3": "B_3"
+    }
+    
+    tabs = st.tabs([f"Sites {k}" for k in grupos_prioridades.keys()])
+    
+    for (nombre_tab, codigo_prioridad), tab in zip(grupos_prioridades.items(), tabs):
+        with tab:
+            # Filtrar sitios de esta prioridad
+            sitios_prioridad = datos['prioridad_df'][
+                datos['prioridad_df'][COL_PRIORIDAD] == codigo_prioridad
+            ][COL_SITE_ID].unique()
+            
+            # Sitios incompletos en esta prioridad
+            sitios_con_alerta = [
+                s for s in sitios_prioridad 
+                if s in sitios_incompletos
+            ]
+            
+            if sitios_con_alerta:
+                st.write(f"**⚠️ {len(sitios_con_alerta)} sitios con ejecución incompleta en {nombre_tab}**")
+                
+                # Ordenar por porcentaje completado (los más atrasados primero)
+                sitios_ordenados = sorted(
+                    sitios_con_alerta,
+                    key=lambda s: sitios_incompletos[s]['porcentaje_completado']
+                )
+                
+                for site in sitios_ordenados:
+                    info = sitios_incompletos[site]
+                    
+                    site_name_row = datos['prioridad_df'][datos['prioridad_df'][COL_SITE_ID] == site]
+                    site_name = site_name_row[COL_SITE].iloc[0] if not site_name_row.empty else site
+                    
+                    # Determinar color según porcentaje
+                    if info['porcentaje_completado'] < 50:
+                        color_badge = "red"
+                        nivel = "CRÍTICO"
+                    elif info['porcentaje_completado'] < 75:
+                        color_badge = "orange"
+                        nivel = "ALERTA"
+                    else:
+                        color_badge = "yellow"
+                        nivel = "MONITOREO"
+                    
+                    with st.expander(
+                        f"{site} — {site_name} — "
+                        f"{info['porcentaje_completado']}% completado, "
+                        f"{info['faltantes']} mttos faltantes"
+                    ):
+                        st.markdown(f":{color_badge}-badge[{nivel}]")
+                        
+                        # Métricas
+                        col1, col2, col3, col4 = st.columns(4)
+                        
+                        with col1:
+                            st.metric(
+                                "Mes Anterior",
+                                info['mes_anterior_total'],
+                                border=True
+                            )
+                        
+                        with col2:
+                            st.metric(
+                                "Realizados Este Mes",
+                                info['mes_actual_realizados'],
+                                f"{info['porcentaje_completado']}%",
+                                border=True
+                            )
+                        
+                        with col3:
+                            st.metric(
+                                "Faltantes",
+                                info['faltantes'],
+                                delta_color="inverse",
+                                border=True
+                            )
+                        
+                        with col4:
+                            st.metric(
+                                "Días Desde Último Mtto",
+                                info['dias_desde_ultimo'],
+                                border=True
+                            )
+                        
+                        st.caption(f"Último mantenimiento: {info['ultimo_mtto_fecha']}")
+                        
+                        # Verificar si hay anulaciones registradas
+                        if tiene_anulaciones:
+                            anulaciones_sitio = df_anulaciones_full[df_anulaciones_full["Site Id"] == site]
+                            
+                            if not anulaciones_sitio.empty:
+                                st.markdown("---")
+                                st.write("**📋 Anulaciones registradas:**")
+                                
+                                for _, anulacion in anulaciones_sitio.iterrows():
+                                    tipo_color = "🔴" if "Permanente" in str(anulacion["Tipo de anulación"]) else "🟡"
+                                    st.write(f"{tipo_color} **{anulacion['Especialidad eliminada']}** — {anulacion['Tipo de anulación']}")
+                                    st.caption(f"Justificación: {anulacion['Justificación']}")
+                        
+                        st.markdown("---")
+                        
+                        # Mostrar evolución histórica
+                        site_data = datos['conteo_ejecutadas'][
+                            datos['conteo_ejecutadas'][COL_SITE_ID] == site
+                        ].sort_values("MES")
+                        
+                        if not site_data.empty:
+                            st.write("**Evolución histórica:**")
+                            columnas_grafico = [
+                                c for c in site_data.columns 
+                                if c not in [COL_SITE_ID, "MES", "TOTAL"]
+                            ]
+                            
+                            df_grafico = site_data.melt(
+                                id_vars=["MES"],
+                                value_vars=columnas_grafico,
+                                var_name="Especialidad",
+                                value_name="Cantidad"
+                            )
+                            st.bar_chart(df_grafico, x="MES", y="Cantidad", color="Especialidad", horizontal=True)
+            else:
+                st.success(f"✅ No hay sitios de tipo {nombre_tab} con ejecución incompleta")
 import pandas as pd
 
 def generar_reporte_mantenimientos_perdidos(datos, meses_seleccionados=None):
@@ -1203,61 +1438,7 @@ def mostrar_sitios_con_menos_mantenimientos(datos):
     st.header("Sitios con Menos Mantenimientos vs Mes Anterior")
     st.caption("Se muestran sitios donde el total de mantenimientos realizados disminuyó respecto al promedio histórico")
     
-    # Selector de mes para el reporte
-    st.subheader("📥 Generar Reporte de Mantenimientos Perdidos")
-    
-    # Obtener lista de meses disponibles
-    meses_disponibles = sorted(datos['conteo_ejecutadas']['MES'].unique(), reverse=True)
-    
-    col_mes, col_boton_generar = st.columns([2, 1])
-    
-    with col_mes:
-        mes_seleccionado = st.selectbox(
-            "Selecciona el mes a analizar:",
-            options=meses_disponibles,
-            index=0,  # Por defecto, el mes más reciente
-            help="El reporte comparará este mes vs el promedio de los meses anteriores"
-        )
-    
-    with col_boton_generar:
-        st.write("")  # Espaciador para alinear verticalmente
-        st.write("")  # Espaciador para alinear verticalmente
-        generar_reporte = st.button("🔄 Generar Reporte", type="secondary")
-    
-    # Generar y mostrar preview del reporte
-    if mes_seleccionado:
-        df_reporte = generar_reporte_mantenimientos_perdidos(datos, mes_seleccionado)
-        
-        if not df_reporte.empty:
-            # Mostrar preview
-            st.write(f"**Vista previa del reporte ({len(df_reporte)} sitios encontrados):**")
-            st.dataframe(df_reporte.head(10), hide_index=True, use_container_width=True)
-            
-            if len(df_reporte) > 10:
-                st.caption(f"📋 Mostrando los primeros 10 de {len(df_reporte)} sitios. Descarga el archivo completo para ver todos.")
-            
-            # Botón de descarga
-            from io import BytesIO
-            
-            buffer = BytesIO()
-            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                df_reporte.to_excel(writer, index=False, sheet_name='Mantenimientos Perdidos')
-            
-            buffer.seek(0)
-            
-            st.download_button(
-                label=f"📥 Descargar Reporte Completo - {mes_seleccionado}",
-                data=buffer,
-                file_name=f"reporte_mantenimientos_perdidos_{mes_seleccionado}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary"
-            )
-            
-            st.caption(f"💡 El reporte contiene {len(df_reporte)} sitios con menos mantenimientos en {mes_seleccionado} vs su promedio histórico")
-        else:
-            st.success(f"✅ No hay sitios con caídas significativas en {mes_seleccionado}")
-    
-    st.markdown("---")
+
     
     # Cargar anulaciones
     try:
@@ -1628,7 +1809,7 @@ def pagina_anulaciones():
         # Aplicar estilos
         styled_anulaciones = df_filtrado.style.apply(aplicar_estilos_anulaciones, axis=None)
         
-        st.dataframe(styled_anulaciones, hide_index=True, use_container_width=True)
+        st.dataframe(styled_anulaciones, hide_index=True, width='stretch')
         
         # Análisis adicional
         st.markdown("---")
@@ -1665,7 +1846,7 @@ def pagina_anulaciones():
                     st.dataframe(
                         anulaciones_sitio[["Especialidad eliminada", "Tipo de anulación", "Justificación"]], 
                         hide_index=True,
-                        use_container_width=True
+                        width='stretch'
                     )
         
     except FileNotFoundError:
@@ -1711,7 +1892,7 @@ def pagina_reporte():
         if not df_reporte.empty:
             # Mostrar preview
             st.write(f"**Vista previa del reporte consolidado ({len(df_reporte)} registros encontrados):**")
-            st.dataframe(df_reporte.head(10), hide_index=True, use_container_width=True)
+            st.dataframe(df_reporte.head(10), hide_index=True, width='stretch')
             
             if len(df_reporte) > 10:
                 st.caption(f"📋 Mostrando los primeros 10 registros. Descarga el archivo para ver el análisis de todos los meses seleccionados.")
