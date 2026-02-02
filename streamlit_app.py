@@ -9,7 +9,7 @@ import math
 st.set_page_config(page_title="Control de Mantenimientos", layout="wide")
 
 # === CONSTANTES ===
-ARCHIVO = "ultimo diciembre.xlsx"
+ARCHIVO = "preventivo_2febrero.xlsx"
 HOJA = "Data"
 
 ARCHIVO_ANULACIONES = "Anulaciones.xlsx"
@@ -1393,7 +1393,7 @@ def generar_reporte_mantenimientos_perdidos(datos, meses_seleccionados=None):
                     "Mes Analizado": mes_actual,
                     "Site Id": site,
                     "Site Name": site_name,
-                    "FLM": COL_FLM_ESPECIFICO,  # <--- Nueva Columna
+                    "FLM": COL_FLM_ESPECIFICO,  
                     "Mantenimientos Perdidos": ", ".join(mantenimientos_perdidos_texto),
                     "Total Mes": int(total_actual),
                     "Promedio Histórico": round(promedio_total_h, 1),
@@ -2037,8 +2037,6 @@ def mostrar_reporte_mantenimientos_perdidos(datos):
                 df_reporte.to_excel(writer, index=False, sheet_name='Mantenimientos Perdidos')
             buffer.seek(0)
 
-            
-            
             # Nombre del archivo dinámico basado en la cantidad de meses
             nombre_archivo = f"reporte_mantenimientos_{len(meses_seleccionados)}_meses.xlsx"
             if len(meses_seleccionados) == 1:
